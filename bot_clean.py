@@ -19,6 +19,7 @@ db_manager = DatabaseManager()
 MAIN_MENU = 1
 ADD_INVOICE_SINGLE = 2
 ADMIN_MENU = 3
+STATISTICS_MENU = 4
 STATISTICS = 10
 STATISTICS_DATE_SELECTION = 16
 STATISTICS_EXPORT = 17
@@ -48,21 +49,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         role = "warehouse_manager" if user_id in [config.WAREHOUSE_MANAGER_ID, config.WAREHOUSE_MANAGER_ID_2, config.WAREHOUSE_MANAGER_ID_3] else "employee"
         db_manager.add_user(user_id, username, full_name, role)
 
-        # عرض القائمة المناسبة
+                # عرض القائمة المناسبة
         if user_id in [config.WAREHOUSE_MANAGER_ID, config.WAREHOUSE_MANAGER_ID_2, config.WAREHOUSE_MANAGER_ID_3]:
-            # قائمة مدير المخزن
+            # قائمة مدير المخزن - نظام شبكة (3 أزرار في كل صف)
             keyboard = [
-                ["📝 إضافة فاتورة"],
-                ["📊 إحصائياتي"],
-                ["📊 إحصائيات بتاريخ محدد"],
-                ["📋 تحميل ملف الطلبات"],
-                ["👥 إحصائيات الموظفين"],
-                ["👥 إحصائيات الموظفين بتاريخ محدد"],
-                ["📤 تصدير التقارير"],
-                ["🔄 إدارة المرتجعات"],
-                ["👤 إدارة المستخدمين"],
-                ["🔐 إدارة كلمات المرور"],
-                ["⚙️ إعدادات النظام"]
+                ["🔙 العودة للقائمة الرئيسية", "📝 إضافة فاتورة", "📊 الإحصائيات"],
+                ["📋 تحميل ملف الطلبات", "🔄 إدارة المرتجعات", "👤 إدارة المستخدمين"],
+                ["🔐 إدارة كلمات المرور", "⚙️ إعدادات النظام"]
             ]
             await update.message.reply_text(
                 "مرحبًا بك في بوت إدارة الفواتير! 🎉\n"
@@ -72,10 +65,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return ADMIN_MENU
         else:
-            # قائمة الموظف العادي
+            # قائمة الموظف العادي - نظام شبكة (3 أزرار في كل صف)
             keyboard = [
-                ["📝 إضافة فاتورة"],
-                ["📊 إحصائياتي"]
+                ["📝 إضافة فاتورة", "📊 إحصائياتي", "🔙 العودة للقائمة الرئيسية"]
             ]
             await update.message.reply_text(
                 "مرحبًا بك في بوت إدارة الفواتير! 🎉\n\n"
@@ -97,6 +89,10 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     text = update.message.text
     
     if text == "📝 إضافة فاتورة":
+        keyboard = [
+            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
             "📝 إضافة فاتورة جديدة\n\n"
             "الرجاء إرسال جميع البيانات في رسالة واحدة بالترتيب التالي:\n\n"
@@ -108,25 +104,14 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "العدد/ 1\n"
             "السعر / 40000\n"
             "الملاحظات/ لاشيئ\n\n"
-            "ملاحظة: استخدم / للفصل بين الحقول",
-            reply_markup=ReplyKeyboardRemove()
+            "ملاحظة: استخدم / للفصل بين الحقول\n\n"
+            "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
+            reply_markup=reply_markup
         )
         return ADD_INVOICE_SINGLE
     
-    elif text == "📊 إحصائياتي":
-        await update.message.reply_text(
-            "الرجاء إدخال اسم الموظف لعرض إحصائياته التفصيلية:",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return STATISTICS
-    
-    elif text == "📊 إحصائيات بتاريخ محدد":
-        await update.message.reply_text(
-            "📅 إحصائيات بتاريخ محدد\n\n"
-            "الرجاء إدخال اسم الموظف أولاً:",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return STATISTICS_DATE_SELECTION
+    elif text == "📊 الإحصائيات":
+        return await show_statistics_menu(update, context)
     
     elif text == "📋 تحميل ملف الطلبات":
         await download_shipping_file(update, context)
@@ -137,6 +122,10 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await show_admin_menu(update, context)
     
     elif text == "👥 إحصائيات الموظفين بتاريخ محدد":
+        keyboard = [
+            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
             "📅 إحصائيات الموظفين بتاريخ محدد\n\n"
             "الرجاء إدخال التاريخ بالشكل التالي:\n"
@@ -144,8 +133,9 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "مثال:\n"
             "2024-01-01 إلى 2024-01-31\n"
             "أو\n"
-            "2024-01-01 إلى 2024-12-31",
-            reply_markup=ReplyKeyboardRemove()
+            "2024-01-01 إلى 2024-12-31\n\n"
+            "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
+            reply_markup=reply_markup
         )
         return ALL_EMPLOYEES_DATE_SELECTION
     
@@ -166,9 +156,22 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await show_system_settings(update, context)
         return await show_admin_menu(update, context)
     
+    elif text == "🔙 العودة للقائمة الرئيسية":
+        return await start(update, context)
+    
+    elif text == "🔐 إدارة كلمات المرور":
+        return await show_password_management_menu(update, context)
+    
+    elif "إدارة كلمات المرور" in text:
+        return await show_password_management_menu(update, context)
+    
     else:
-        await update.message.reply_text("الرجاء اختيار خيار صحيح من القائمة.")
-        return ADMIN_MENU
+        # إذا كان المستخدم في حالة إدارة كلمات المرور، إعادة توجيه للمعالج المناسب
+        if context.user_data.get('password_action'):
+            return await password_management_handler(update, context)
+        else:
+            await update.message.reply_text("الرجاء اختيار خيار صحيح من القائمة.")
+            return ADMIN_MENU
 
 async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالج القائمة الرئيسية للموظفين"""
@@ -192,58 +195,417 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ADD_INVOICE_SINGLE
     
     elif text == "📊 إحصائياتي":
+        keyboard = [
+            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_main_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
-            "الرجاء إدخال اسم الموظف لعرض إحصائياته التفصيلية:",
-            reply_markup=ReplyKeyboardRemove()
+            "الرجاء إدخال اسم الموظف لعرض إحصائياته التفصيلية:\n\n"
+            "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
+            reply_markup=reply_markup
         )
         return STATISTICS
+    
+    elif text == "🔙 العودة للقائمة الرئيسية":
+        return await start(update, context)
     
     else:
         await update.message.reply_text("الرجاء اختيار خيار صحيح من القائمة.")
         return MAIN_MENU
 
+async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """عرض القائمة الرئيسية للموظفين العاديين"""
+    keyboard = [
+        ["📝 إضافة فاتورة", "📊 إحصائياتي", "🔙 العودة للقائمة الرئيسية"]
+    ]
+    
+    if update.callback_query:
+        # عند استخدام callback_query، نرسل رسالة جديدة بدلاً من تعديل الرسالة
+        await update.callback_query.answer()
+        await update.callback_query.message.reply_text(
+            "اختر الخدمة المطلوبة:",
+            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        )
+    else:
+        await update.message.reply_text(
+            "اختر الخدمة المطلوبة:",
+            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        )
+    return MAIN_MENU
+
 async def show_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """عرض قائمة مدير المخزن"""
     keyboard = [
-        ["📝 إضافة فاتورة"],
-        ["📊 إحصائياتي"],
-        ["📊 إحصائيات بتاريخ محدد"],
-        ["📋 تحميل ملف الطلبات"],
-        ["👥 إحصائيات الموظفين"],
-        ["👥 إحصائيات الموظفين بتاريخ محدد"],
-        ["📤 تصدير التقارير"],
-        ["🔄 إدارة المرتجعات"],
-        ["👤 إدارة المستخدمين"],
-        ["🔐 إدارة كلمات المرور"],
-        ["⚙️ إعدادات النظام"]
+        ["🔙 العودة للقائمة الرئيسية", "📝 إضافة فاتورة", "📊 الإحصائيات"],
+        ["📋 تحميل ملف الطلبات", "🔄 إدارة المرتجعات", "👤 إدارة المستخدمين"],
+        ["🔐 إدارة كلمات المرور", "⚙️ إعدادات النظام"]
     ]
-    await update.message.reply_text(
-        "اختر الخدمة التالية:",
-        reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-    )
+    
+    if update.callback_query:
+        # عند استخدام callback_query، نرسل رسالة جديدة بدلاً من تعديل الرسالة
+        await update.callback_query.answer()
+        await update.callback_query.message.reply_text(
+            "اختر الخدمة التالية:",
+            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        )
+    else:
+        await update.message.reply_text(
+            "اختر الخدمة التالية:",
+            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        )
     return ADMIN_MENU
 
-async def download_shipping_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تحميل ملف طلبات شركة التوصيل"""
-    try:
-        await update.message.reply_text("🔄 جاري إنشاء ملف الطلبات...")
-        
-        filename = db_manager.create_shipping_excel(days=1)
-        
-        if filename:
-            with open(filename, 'rb') as file:
-                await update.message.reply_document(
-                    document=file,
-                    filename=f"طلبات_التوصيل_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                    caption="📋 ملف طلبات شركة التوصيل للآخر 24 ساعة"
-                )
-            # حذف الملف المؤقت
-            os.remove(filename)
-        else:
-            await update.message.reply_text("❌ لا توجد طلبات في آخر 24 ساعة")
+async def show_statistics_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """عرض قائمة الإحصائيات"""
+    keyboard = [
+        ["📊 إحصائياتي", "📊 إحصائيات بتاريخ محدد"],
+        ["👥 إحصائيات الموظفين", "👥 إحصائيات الموظفين بتاريخ محدد"],
+        ["📤 تصدير التقارير", "🔙 العودة للقائمة الرئيسية"]
+    ]
     
+    if update.callback_query:
+        # عند استخدام callback_query، نرسل رسالة جديدة بدلاً من تعديل الرسالة
+        await update.callback_query.answer()
+        await update.callback_query.message.reply_text(
+            "📊 قائمة الإحصائيات\n\n"
+            "اختر نوع الإحصائيات المطلوبة:",
+            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        )
+    else:
+        await update.message.reply_text(
+            "📊 قائمة الإحصائيات\n\n"
+            "اختر نوع الإحصائيات المطلوبة:",
+            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        )
+    return STATISTICS_MENU
+
+async def statistics_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالج قائمة الإحصائيات"""
+    text = update.message.text
+    
+    if text == "📊 إحصائياتي":
+        keyboard = [
+            [InlineKeyboardButton("🔙 العودة لقائمة الإحصائيات", callback_data="back_to_statistics_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "الرجاء إدخال اسم الموظف لعرض إحصائياته التفصيلية:\n\n"
+            "💡 أو اضغط على زر العودة للرجوع لقائمة الإحصائيات",
+            reply_markup=reply_markup
+        )
+        return STATISTICS
+    
+    elif text == "📊 إحصائيات بتاريخ محدد":
+        keyboard = [
+            [InlineKeyboardButton("🔙 العودة لقائمة الإحصائيات", callback_data="back_to_statistics_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "📅 إحصائيات بتاريخ محدد\n\n"
+            "الرجاء إدخال اسم الموظف أولاً:\n\n"
+            "💡 أو اضغط على زر العودة للرجوع لقائمة الإحصائيات",
+            reply_markup=reply_markup
+        )
+        return STATISTICS_DATE_SELECTION
+    
+    elif text == "👥 إحصائيات الموظفين":
+        await show_all_employees_stats(update, context)
+        return await show_statistics_menu(update, context)
+    
+    elif text == "👥 إحصائيات الموظفين بتاريخ محدد":
+        # حساب التواريخ
+        today = datetime.now()
+        start_of_week = today - timedelta(days=today.weekday())
+        start_of_month = today.replace(day=1)
+        start_of_year = today.replace(month=1, day=1)
+        
+        keyboard = [
+            [InlineKeyboardButton("📅 اليوم", callback_data="all_employees_date_today")],
+            [InlineKeyboardButton("📅 هذا الأسبوع", callback_data="all_employees_date_week")],
+            [InlineKeyboardButton("📅 هذا الشهر", callback_data="all_employees_date_month")],
+            [InlineKeyboardButton("📅 هذا العام", callback_data="all_employees_date_year")],
+            [InlineKeyboardButton("📝 تاريخ مخصص", callback_data="all_employees_date_custom")],
+            [InlineKeyboardButton("🔙 العودة لقائمة الإحصائيات", callback_data="back_to_statistics_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "📅 إحصائيات الموظفين بتاريخ محدد\n\n"
+            "اختر الفترة الزمنية المطلوبة:\n\n"
+            "📅 اليوم - إحصائيات اليوم الحالي\n"
+            "📅 هذا الأسبوع - إحصائيات الأسبوع الحالي\n"
+            "📅 هذا الشهر - إحصائيات الشهر الحالي\n"
+            "📅 هذا العام - إحصائيات السنة الحالية\n"
+            "📝 تاريخ مخصص - إدخال تاريخ محدد\n\n"
+            "💡 أو اضغط على زر العودة للرجوع لقائمة الإحصائيات",
+            reply_markup=reply_markup
+        )
+        return ALL_EMPLOYEES_DATE_SELECTION
+    
+    elif text == "📤 تصدير التقارير":
+        await show_export_menu(update, context)
+        return STATISTICS_EXPORT
+    
+    elif text == "🔙 العودة للقائمة الرئيسية":
+        return await start(update, context)
+    
+    else:
+        await update.message.reply_text("الرجاء اختيار خيار صحيح من القائمة.")
+        return STATISTICS_MENU
+
+async def statistics_menu_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالج أزرار قائمة الإحصائيات التفاعلية"""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "back_to_statistics_menu":
+        return await show_statistics_menu(update, context)
+
+async def date_selection_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالج أزرار اختيار التواريخ"""
+    query = update.callback_query
+    await query.answer()
+    
+    # استخراج نوع التاريخ واسم الموظف
+    parts = query.data.split('_', 2)
+    date_type = parts[1]
+    employee_name = parts[2]
+    
+    # حساب التواريخ
+    today = datetime.now()
+    
+    if date_type == "today":
+        start_date = today.strftime('%Y-%m-%d')
+        end_date = today.strftime('%Y-%m-%d')
+        period_text = "اليوم"
+    elif date_type == "week":
+        start_of_week = today - timedelta(days=today.weekday())
+        end_date = today.strftime('%Y-%m-%d')
+        start_date = start_of_week.strftime('%Y-%m-%d')
+        period_text = "هذا الأسبوع"
+    elif date_type == "month":
+        start_date = today.replace(day=1).strftime('%Y-%m-%d')
+        end_date = today.strftime('%Y-%m-%d')
+        period_text = "هذا الشهر"
+    elif date_type == "year":
+        start_date = today.replace(month=1, day=1).strftime('%Y-%m-%d')
+        end_date = today.strftime('%Y-%m-%d')
+        period_text = "هذا العام"
+    elif date_type == "custom":
+        # طلب إدخال تاريخ مخصص
+        keyboard = [
+            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            f"📝 تاريخ مخصص لـ {employee_name}\n\n"
+            "الرجاء إدخال التاريخ بالشكل التالي:\n"
+            "YYYY-MM-DD إلى YYYY-MM-DD\n\n"
+            "مثال:\n"
+            "2024-01-01 إلى 2024-01-31\n\n"
+            "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
+            reply_markup=reply_markup
+        )
+        context.user_data['employee_name'] = employee_name
+        return STATISTICS_DATE_SELECTION
+    
+    # الحصول على الإحصائيات
+    stats = db_manager.get_employee_stats_by_date_range(employee_name, start_date, end_date)
+    
+    if stats and stats['total_orders'] > 0:
+        stats_text = f"""
+📊 إحصائيات {employee_name} - {period_text}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 عدد الفواتير: {stats['total_orders']}
+📦 إجمالي القطع: {stats['total_quantity']}
+💰 إجمالي المبيعات: {stats['total_sales']:,.0f} دينار
+📈 متوسط سعر القطعة: {(stats['total_sales'] / stats['total_quantity']):,.0f} دينار
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+        
+        # إضافة تفاصيل آخر 5 فواتير
+        if stats['invoices']:
+            stats_text += "\n📋 آخر 5 فواتير:\n"
+            for i, invoice in enumerate(stats['invoices'][:5], 1):
+                receipt_num = invoice[1]  # receipt_number
+                client_name = invoice[3]  # client_name
+                quantity = invoice[7]     # quantity (index 7)
+                price = invoice[9]        # total_sales (index 9)
+                date = datetime.strptime(invoice[11], '%Y-%m-%d %H:%M:%S').strftime('%d/%m')  # created_at (index 11)
+                
+                stats_text += f"{i}. {receipt_num} - {client_name} ({quantity} قطعة - {price:,.0f} د) - {date}\n"
+        
+        # إضافة أزرار التصدير والعودة
+        keyboard = [
+            [InlineKeyboardButton("📤 تصدير التقرير", callback_data=f"export_employee_{employee_name}_{start_date}_{end_date}")],
+            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(stats_text, reply_markup=reply_markup)
+    else:
+        keyboard = [
+            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            f"❌ لم يتم العثور على بيانات لـ {employee_name} في {period_text}.\n\n"
+            "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
+            reply_markup=reply_markup
+        )
+
+async def all_employees_date_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالج أزرار اختيار التواريخ لإحصائيات جميع الموظفين"""
+    query = update.callback_query
+    await query.answer()
+    
+    # استخراج نوع التاريخ
+    date_type = query.data.split('_')[3]  # all_employees_date_today -> today
+    
+    # حساب التواريخ
+    today = datetime.now()
+    
+    if date_type == "today":
+        start_date = today.strftime('%Y-%m-%d')
+        end_date = today.strftime('%Y-%m-%d')
+        period_text = "اليوم"
+    elif date_type == "week":
+        start_of_week = today - timedelta(days=today.weekday())
+        end_date = today.strftime('%Y-%m-%d')
+        start_date = start_of_week.strftime('%Y-%m-%d')
+        period_text = "هذا الأسبوع"
+    elif date_type == "month":
+        start_date = today.replace(day=1).strftime('%Y-%m-%d')
+        end_date = today.strftime('%Y-%m-%d')
+        period_text = "هذا الشهر"
+    elif date_type == "year":
+        start_date = today.replace(month=1, day=1).strftime('%Y-%m-%d')
+        end_date = today.strftime('%Y-%m-%d')
+        period_text = "هذا العام"
+    elif date_type == "custom":
+        # طلب إدخال تاريخ مخصص
+        keyboard = [
+            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "📝 تاريخ مخصص لإحصائيات جميع الموظفين\n\n"
+            "الرجاء إدخال التاريخ بالشكل التالي:\n"
+            "YYYY-MM-DD إلى YYYY-MM-DD\n\n"
+            "مثال:\n"
+            "2024-01-01 إلى 2024-01-31\n\n"
+            "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
+            reply_markup=reply_markup
+        )
+        return ALL_EMPLOYEES_DATE_SELECTION
+    
+    # الحصول على الإحصائيات
+    stats = db_manager.get_all_employees_stats_by_date_range(start_date, end_date)
+    
+    if stats:
+        stats_text = f"""
+📊 إحصائيات جميع الموظفين - {period_text}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+        total_orders = 0
+        total_quantity = 0
+        total_sales = 0
+        
+        for i, (employee, orders, quantity, sales) in enumerate(stats, 1):
+            avg_price = sales / quantity if quantity > 0 else 0
+            stats_text += f"""
+{i}. 👤 {employee}
+   📋 عدد الفواتير: {orders}
+   📦 إجمالي القطع: {quantity}
+   💰 إجمالي المبيعات: {sales:,.0f} دينار
+   📈 متوسط سعر القطعة: {avg_price:,.0f} دينار
+"""
+            total_orders += orders
+            total_quantity += quantity
+            total_sales += sales
+        
+        # إضافة الإجمالي العام
+        stats_text += f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 الإجمالي العام:
+📋 إجمالي الفواتير: {total_orders}
+📦 إجمالي القطع: {total_quantity}
+💰 إجمالي المبيعات: {total_sales:,.0f} دينار
+📈 متوسط سعر القطعة: {(total_sales / total_quantity if total_quantity > 0 else 0):,.0f} دينار
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+        
+        # إضافة أزرار التصدير والعودة
+        keyboard = [
+            [InlineKeyboardButton("📤 تصدير التقرير", callback_data=f"export_all_employees_{start_date}_{end_date}")],
+            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(stats_text, reply_markup=reply_markup)
+    else:
+        keyboard = [
+            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            f"❌ لم يتم العثور على بيانات للموظفين في {period_text}.\n\n"
+            "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
+            reply_markup=reply_markup
+        )
+
+async def input_screens_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالج أزرار الشاشات التي تطلب إدخال بيانات"""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "back_to_admin":
+        return await show_admin_menu(update, context)
+    elif query.data == "back_to_main_menu":
+        return await start(update, context)
+
+async def show_shipping_period_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """عرض قائمة اختيار فترة تحميل الطلبات"""
+    try:
+        # الحصول على إحصائيات التصدير
+        export_stats = db_manager.get_export_stats()
+        
+        stats_text = ""
+        if export_stats:
+            stats_text = f"""
+📊 إحصائيات الطلبات:
+• إجمالي الطلبات: {export_stats['total_invoices']}
+• الطلبات المصدرة: {export_stats['exported_invoices']}
+• الطلبات الجديدة: {export_stats['new_invoices']}
+"""
+        
+        text = f"""
+📋 تحميل ملف طلبات التوصيل
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{stats_text}
+اختر فترة التحميل:
+"""
+        
+        keyboard = [
+            [InlineKeyboardButton("📋 الكل", callback_data="shipping_all")],
+            [InlineKeyboardButton("⏰ آخر 24 ساعة", callback_data="shipping_1")],
+            [InlineKeyboardButton("📅 آخر يومين", callback_data="shipping_2")],
+            [InlineKeyboardButton("📆 آخر أسبوع", callback_data="shipping_7")],
+            [InlineKeyboardButton("📊 آخر شهر", callback_data="shipping_30")],
+            [InlineKeyboardButton("📈 آخر 3 شهور", callback_data="shipping_90")],
+            [InlineKeyboardButton("🆕 الجديد فقط", callback_data="shipping_new")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main_menu")]
+        ]
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(text, reply_markup=reply_markup)
+        
     except Exception as e:
-        await update.message.reply_text(f"❌ خطأ في إنشاء الملف: {e}")
+        await update.message.reply_text(f"❌ خطأ في عرض القائمة: {e}")
+
+async def download_shipping_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تحميل ملف طلبات شركة التوصيل (الوظيفة القديمة - للتوافق)"""
+    await show_shipping_period_menu(update, context)
 
 async def show_all_employees_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """عرض إحصائيات جميع الموظفين"""
@@ -314,6 +676,14 @@ async def add_invoice_single_handler(update: Update, context: ContextTypes.DEFAU
     try:
         text = update.message.text.strip()
         
+        # التحقق من وجود أمر العودة
+        if text.lower() in ['عودة', 'رجوع', 'back', 'cancel', 'إلغاء', 'الغاء']:
+            user_id = update.message.from_user.id
+            if user_id in [config.WAREHOUSE_MANAGER_ID, config.WAREHOUSE_MANAGER_ID_2, config.WAREHOUSE_MANAGER_ID_3]:
+                return await show_admin_menu(update, context)
+            else:
+                return await show_main_menu(update, context)
+        
         # تقسيم النص حسب السطر الجديد أولاً
         lines = [line.strip() for line in text.split('\n') if line.strip()]
         
@@ -321,6 +691,11 @@ async def add_invoice_single_handler(update: Update, context: ContextTypes.DEFAU
         if len(lines) == 1:
             parts = [part.strip() for part in text.split('/')]
             if len(parts) < 8:
+                keyboard = [
+                    [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_main_menu")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
                 await update.message.reply_text(
                     "❌ خطأ في تنسيق البيانات!\n\n"
                     "الرجاء إدخال جميع البيانات بالترتيب:\n"
@@ -331,7 +706,9 @@ async def add_invoice_single_handler(update: Update, context: ContextTypes.DEFAU
                     "الرقم/ 0782444\n"
                     "العدد/ 1\n"
                     "السعر / 40000\n"
-                    "الملاحظات/ لاشيئ"
+                    "الملاحظات/ لاشيئ\n\n"
+                    "💡 أو اكتب 'عودة' للرجوع للقائمة الرئيسية",
+                    reply_markup=reply_markup
                 )
                 return ADD_INVOICE_SINGLE
             
@@ -347,6 +724,10 @@ async def add_invoice_single_handler(update: Update, context: ContextTypes.DEFAU
         else:
             # التنسيق الجديد - كل حقل في سطر منفصل
             if len(lines) < 8:
+                keyboard = [
+                    [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
                 await update.message.reply_text(
                     "❌ خطأ في تنسيق البيانات!\n\n"
                     "الرجاء إدخال جميع البيانات بالترتيب:\n"
@@ -357,7 +738,9 @@ async def add_invoice_single_handler(update: Update, context: ContextTypes.DEFAU
                     "الرقم/ 0782444\n"
                     "العدد/ 1\n"
                     "السعر / 40000\n"
-                    "الملاحظات/ لاشيئ"
+                    "الملاحظات/ لاشيئ\n\n"
+                    "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
+                    reply_markup=reply_markup
                 )
                 return ADD_INVOICE_SINGLE
             
@@ -372,6 +755,10 @@ async def add_invoice_single_handler(update: Update, context: ContextTypes.DEFAU
                 price = lines[6].split('/')[1].strip() if '/' in lines[6] else lines[6]
                 notes = lines[7].split('/')[1].strip() if '/' in lines[7] else lines[7]
             except IndexError:
+                keyboard = [
+                    [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
                 await update.message.reply_text(
                     "❌ خطأ في تنسيق البيانات!\n\n"
                     "الرجاء التأكد من تنسيق البيانات:\n"
@@ -382,7 +769,9 @@ async def add_invoice_single_handler(update: Update, context: ContextTypes.DEFAU
                     "الرقم/ 0782444\n"
                     "العدد/ 1\n"
                     "السعر / 40000\n"
-                    "الملاحظات/ لاشيئ"
+                    "الملاحظات/ لاشيئ\n\n"
+                    "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
+                    reply_markup=reply_markup
                 )
                 return ADD_INVOICE_SINGLE
         
@@ -404,7 +793,15 @@ async def add_invoice_single_handler(update: Update, context: ContextTypes.DEFAU
             if quantity <= 0:
                 raise ValueError("العدد يجب أن يكون أكبر من صفر")
         except ValueError:
-            await update.message.reply_text("❌ خطأ: العدد يجب أن يكون رقماً صحيحاً أكبر من صفر")
+            keyboard = [
+                [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "❌ خطأ: العدد يجب أن يكون رقماً صحيحاً أكبر من صفر\n\n"
+                "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
+                reply_markup=reply_markup
+            )
             return ADD_INVOICE_SINGLE
         
         try:
@@ -414,12 +811,28 @@ async def add_invoice_single_handler(update: Update, context: ContextTypes.DEFAU
             if price <= 0:
                 raise ValueError("السعر يجب أن يكون أكبر من صفر")
         except ValueError:
-            await update.message.reply_text("❌ خطأ: السعر يجب أن يكون رقماً أكبر من صفر")
+            keyboard = [
+                [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "❌ خطأ: السعر يجب أن يكون رقماً أكبر من صفر\n\n"
+                "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
+                reply_markup=reply_markup
+            )
             return ADD_INVOICE_SINGLE
         
         # التحقق من رقم الهاتف
         if not phone_number.replace(' ', '').isdigit() or len(phone_number.replace(' ', '')) < 10:
-            await update.message.reply_text("❌ خطأ: رقم الهاتف غير صحيح")
+            keyboard = [
+                [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "❌ خطأ: رقم الهاتف غير صحيح\n\n"
+                "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
+                reply_markup=reply_markup
+            )
             return ADD_INVOICE_SINGLE
         
         # إنشاء رقم الإيصال
@@ -465,11 +878,8 @@ async def add_invoice_single_handler(update: Update, context: ContextTypes.DEFAU
             user_id = update.message.from_user.id
             if user_id in [config.WAREHOUSE_MANAGER_ID, config.WAREHOUSE_MANAGER_ID_2, config.WAREHOUSE_MANAGER_ID_3]:
                 keyboard = [
-                    ["📝 إضافة فاتورة"],
-                    ["📊 إحصائياتي"],
-                    ["📋 تحميل ملف الطلبات"],
-                    ["👥 إحصائيات الموظفين"],
-                    ["⚙️ إعدادات النظام"]
+                    ["📝 إضافة فاتورة", "📊 إحصائياتي", "📋 تحميل ملف الطلبات"],
+                    ["👥 إحصائيات الموظفين", "⚙️ إعدادات النظام", "🔙 العودة للقائمة الرئيسية"]
                 ]
                 await update.message.reply_text(
                     confirmation_text,
@@ -478,8 +888,7 @@ async def add_invoice_single_handler(update: Update, context: ContextTypes.DEFAU
                 return ADMIN_MENU
             else:
                 keyboard = [
-                    ["📝 إضافة فاتورة"],
-                    ["📊 إحصائياتي"]
+                    ["📝 إضافة فاتورة", "📊 إحصائياتي", "🔙 العودة للقائمة الرئيسية"]
                 ]
                 await update.message.reply_text(
                     confirmation_text,
@@ -487,26 +896,56 @@ async def add_invoice_single_handler(update: Update, context: ContextTypes.DEFAU
                 )
                 return MAIN_MENU
         else:
-            await update.message.reply_text("❌ خطأ في حفظ الفاتورة. الرجاء المحاولة مرة أخرى.")
+            keyboard = [
+                [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "❌ خطأ في حفظ الفاتورة. الرجاء المحاولة مرة أخرى.\n\n"
+                "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
+                reply_markup=reply_markup
+            )
             return ADD_INVOICE_SINGLE
             
     except Exception as e:
-        await update.message.reply_text(f"❌ خطأ في معالجة البيانات: {e}\nالرجاء المحاولة مرة أخرى.")
+        keyboard = [
+            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            f"❌ خطأ في معالجة البيانات: {e}\nالرجاء المحاولة مرة أخرى.\n\n"
+            "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
+            reply_markup=reply_markup
+        )
         return ADD_INVOICE_SINGLE
 
 # معالج الإحصائيات
 async def statistics_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالج الإحصائيات"""
-    employee_name = update.message.text
+    employee_name = update.message.text.strip()
+    
+    # التحقق من وجود أمر العودة
+    if employee_name.lower() in ['عودة', 'رجوع', 'back', 'cancel', 'إلغاء', 'الغاء']:
+        user_id = update.message.from_user.id
+        if user_id in [config.WAREHOUSE_MANAGER_ID, config.WAREHOUSE_MANAGER_ID_2, config.WAREHOUSE_MANAGER_ID_3]:
+            return await show_admin_menu(update, context)
+        else:
+            return await show_main_menu(update, context)
     
     # التحقق من وجود كلمة مرور للموظف
     if db_manager.has_password(employee_name):
         # حفظ اسم الموظف وطلب كلمة المرور
         context.user_data['employee_name'] = employee_name
+        keyboard = [
+            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_main_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         await update.message.reply_text(
             f"🔐 كلمة المرور مطلوبة\n\n"
-            f"الرجاء إدخال كلمة المرور الخاصة بـ {employee_name}:",
-            reply_markup=ReplyKeyboardRemove()
+            f"الرجاء إدخال كلمة المرور الخاصة بـ {employee_name}:\n\n"
+            f"💡 أو اكتب 'عودة' للرجوع للقائمة الرئيسية",
+            reply_markup=reply_markup
         )
         return STATISTICS_PASSWORD
     else:
@@ -515,8 +954,16 @@ async def statistics_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def statistics_password_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالج كلمة مرور الإحصائيات"""
-    password = update.message.text
+    password = update.message.text.strip()
     employee_name = context.user_data.get('employee_name', '')
+    
+    # التحقق من وجود أمر العودة
+    if password.lower() in ['عودة', 'رجوع', 'back', 'cancel', 'إلغاء', 'الغاء']:
+        user_id = update.message.from_user.id
+        if user_id in [config.WAREHOUSE_MANAGER_ID, config.WAREHOUSE_MANAGER_ID_2, config.WAREHOUSE_MANAGER_ID_3]:
+            return await show_admin_menu(update, context)
+        else:
+            return await show_main_menu(update, context)
     
     # التحقق من كلمة المرور
     if db_manager.verify_employee_password(employee_name, password):
@@ -524,10 +971,16 @@ async def statistics_password_handler(update: Update, context: ContextTypes.DEFA
         return await show_employee_statistics(update, context, employee_name)
     else:
         # كلمة المرور خاطئة
+        keyboard = [
+            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_main_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         await update.message.reply_text(
             "❌ كلمة المرور غير صحيحة!\n\n"
-            "الرجاء المحاولة مرة أخرى أو إدخال اسم موظف آخر:",
-            reply_markup=ReplyKeyboardRemove()
+            "الرجاء المحاولة مرة أخرى أو إدخال اسم موظف آخر:\n\n"
+            "💡 أو اكتب 'عودة' للرجوع للقائمة الرئيسية",
+            reply_markup=reply_markup
         )
         # مسح اسم الموظف من الذاكرة
         context.user_data.pop('employee_name', None)
@@ -588,8 +1041,7 @@ async def show_employee_statistics(update: Update, context: ContextTypes.DEFAULT
         return await show_admin_menu(update, context)
     else:
         keyboard = [
-            ["📝 إضافة فاتورة"],
-            ["📊 إحصائياتي"]
+            ["📝 إضافة فاتورة", "📊 إحصائياتي", "🔙 العودة للقائمة الرئيسية"]
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
         await update.message.reply_text(stats_text, reply_markup=reply_markup)
@@ -599,17 +1051,44 @@ async def statistics_date_selection_handler(update: Update, context: ContextType
     """معالج اختيار التاريخ للإحصائيات"""
     text = update.message.text.strip()
     
+    # التحقق من وجود أمر العودة
+    if text.lower() in ['عودة', 'رجوع', 'back', 'cancel', 'إلغاء', 'الغاء']:
+        user_id = update.message.from_user.id
+        if user_id in [config.WAREHOUSE_MANAGER_ID, config.WAREHOUSE_MANAGER_ID_2, config.WAREHOUSE_MANAGER_ID_3]:
+            return await show_admin_menu(update, context)
+        else:
+            return await show_main_menu(update, context)
+    
     # إذا لم يكن اسم الموظف محفوظاً، احفظه واطلب التاريخ
     if 'employee_name' not in context.user_data:
         context.user_data['employee_name'] = text
+        
+        # حساب التواريخ
+        today = datetime.now()
+        start_of_week = today - timedelta(days=today.weekday())
+        start_of_month = today.replace(day=1)
+        start_of_year = today.replace(month=1, day=1)
+        
+        keyboard = [
+            [InlineKeyboardButton("📅 اليوم", callback_data=f"date_today_{text}")],
+            [InlineKeyboardButton("📅 هذا الأسبوع", callback_data=f"date_week_{text}")],
+            [InlineKeyboardButton("📅 هذا الشهر", callback_data=f"date_month_{text}")],
+            [InlineKeyboardButton("📅 هذا العام", callback_data=f"date_year_{text}")],
+            [InlineKeyboardButton("📝 تاريخ مخصص", callback_data=f"date_custom_{text}")],
+            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         await update.message.reply_text(
             f"📅 إحصائيات {text} بتاريخ محدد\n\n"
-            "الرجاء إدخال التاريخ بالشكل التالي:\n"
-            "YYYY-MM-DD إلى YYYY-MM-DD\n\n"
-            "مثال:\n"
-            "2024-01-01 إلى 2024-01-31\n"
-            "أو\n"
-            "2024-01-01 إلى 2024-12-31"
+            "اختر الفترة الزمنية المطلوبة:\n\n"
+            "📅 اليوم - إحصائيات اليوم الحالي\n"
+            "📅 هذا الأسبوع - إحصائيات الأسبوع الحالي\n"
+            "📅 هذا الشهر - إحصائيات الشهر الحالي\n"
+            "📅 هذا العام - إحصائيات السنة الحالية\n"
+            "📝 تاريخ مخصص - إدخال تاريخ محدد\n\n"
+            "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
+            reply_markup=reply_markup
         )
         return STATISTICS_DATE_SELECTION
     else:
@@ -623,10 +1102,16 @@ async def statistics_date_range_handler(update: Update, context: ContextTypes.DE
     try:
         # تحليل نطاق التاريخ
         if "إلى" not in text:
+            keyboard = [
+                [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
                 "❌ خطأ في تنسيق التاريخ!\n\n"
                 "الرجاء استخدام التنسيق:\n"
-                "YYYY-MM-DD إلى YYYY-MM-DD"
+                "YYYY-MM-DD إلى YYYY-MM-DD\n\n"
+                "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
+                reply_markup=reply_markup
             )
             return STATISTICS_DATE_SELECTION
         
@@ -669,25 +1154,47 @@ async def statistics_date_range_handler(update: Update, context: ContextTypes.DE
             # إضافة أزرار التصدير
             keyboard = [
                 [InlineKeyboardButton("📤 تصدير التقرير", callback_data=f"export_employee_{employee_name}_{start_date}_{end_date}")],
-                [InlineKeyboardButton("🔙 العودة للقائمة", callback_data="back_to_admin_menu")]
+                [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             await update.message.reply_text(stats_text, reply_markup=reply_markup)
         else:
-            await update.message.reply_text(f"❌ لم يتم العثور على بيانات لـ {employee_name} في الفترة المحددة.")
+            keyboard = [
+                [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                f"❌ لم يتم العثور على بيانات لـ {employee_name} في الفترة المحددة.\n\n"
+                "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
+                reply_markup=reply_markup
+            )
         
         return await show_admin_menu(update, context)
         
     except ValueError:
+        keyboard = [
+            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
             "❌ خطأ في تنسيق التاريخ!\n\n"
             "الرجاء استخدام التنسيق:\n"
-            "YYYY-MM-DD إلى YYYY-MM-DD"
+            "YYYY-MM-DD إلى YYYY-MM-DD\n\n"
+            "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
+            reply_markup=reply_markup
         )
         return STATISTICS_DATE_SELECTION
     except Exception as e:
-        await update.message.reply_text(f"❌ خطأ في معالجة الطلب: {e}")
+        keyboard = [
+            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            f"❌ خطأ في معالجة الطلب: {e}\n\n"
+            "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
+            reply_markup=reply_markup
+        )
         return await show_admin_menu(update, context)
 
 async def all_employees_date_selection_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -697,10 +1204,16 @@ async def all_employees_date_selection_handler(update: Update, context: ContextT
     try:
         # تحليل نطاق التاريخ
         if "إلى" not in text:
+            keyboard = [
+                [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
                 "❌ خطأ في تنسيق التاريخ!\n\n"
                 "الرجاء استخدام التنسيق:\n"
-                "YYYY-MM-DD إلى YYYY-MM-DD"
+                "YYYY-MM-DD إلى YYYY-MM-DD\n\n"
+                "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
+                reply_markup=reply_markup
             )
             return ALL_EMPLOYEES_DATE_SELECTION
         
@@ -787,6 +1300,79 @@ async def show_export_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "اختر نوع التقرير المراد تصديره:",
         reply_markup=reply_markup
     )
+
+async def shipping_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالج أزرار اختيار فترة تحميل الطلبات"""
+    query = update.callback_query
+    await query.answer()
+    
+    try:
+        user_id = query.from_user.id
+        
+        if query.data == "back_to_main_menu":
+            await query.edit_message_text("تم العودة للقائمة الرئيسية.")
+            return await show_main_menu(update, context)
+        
+        elif query.data.startswith("shipping_"):
+            period = query.data.replace("shipping_", "")
+            
+            # تحديد نوع التصدير والفترة
+            if period == "all":
+                days = 3650  # 10 سنوات (تقريباً الكل)
+                export_type = "all"
+                period_text = "الكل"
+            elif period == "new":
+                days = 0
+                export_type = "new_only"
+                period_text = "الجديد فقط"
+            else:
+                days = int(period)
+                export_type = f"{days}_days"
+                if days == 1:
+                    period_text = "آخر 24 ساعة"
+                elif days == 2:
+                    period_text = "آخر يومين"
+                elif days == 7:
+                    period_text = "آخر أسبوع"
+                elif days == 30:
+                    period_text = "آخر شهر"
+                elif days == 90:
+                    period_text = "آخر 3 شهور"
+                else:
+                    period_text = f"آخر {days} يوم"
+            
+            # تحديث الرسالة
+            await query.edit_message_text(f"🔄 جاري إنشاء ملف الطلبات لـ {period_text}...")
+            
+            # إنشاء الملف
+            filename = db_manager.create_shipping_excel(days, export_type, user_id)
+            
+            if filename:
+                # الحصول على عدد الطلبات
+                df = db_manager.get_all_invoices_for_shipping(days, export_type, user_id)
+                orders_count = len(df) if df is not None else 0
+                
+                with open(filename, 'rb') as file:
+                    await context.bot.send_document(
+                        chat_id=query.from_user.id,
+                        document=file,
+                        filename=f"طلبات_التوصيل_{period_text}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        caption=f"📋 ملف طلبات التوصيل لـ {period_text}\n📊 عدد الطلبات: {orders_count}"
+                    )
+                
+                # حذف الملف المؤقت
+                os.remove(filename)
+                
+                # رسالة تأكيد
+                await context.bot.send_message(
+                    chat_id=query.from_user.id,
+                    text=f"✅ تم إنشاء ملف الطلبات بنجاح!\n📋 الفترة: {period_text}\n📊 عدد الطلبات: {orders_count}"
+                )
+            else:
+                await query.edit_message_text(f"❌ لا توجد طلبات لـ {period_text}")
+    
+    except Exception as e:
+        await query.edit_message_text(f"❌ خطأ في إنشاء الملف: {e}")
 
 async def export_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالج أزرار التصدير"""
@@ -1123,6 +1709,9 @@ async def add_user_role_handler(update: Update, context: ContextTypes.DEFAULT_TY
             ]])
         )
         return ADD_USER_DATA
+    
+    elif query.data == "back_to_user_management":
+        return await show_user_management_menu(update, context)
 
 async def user_management_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالج إدارة المستخدمين - إدخال بيانات المستخدم"""
@@ -1132,6 +1721,10 @@ async def user_management_handler(update: Update, context: ContextTypes.DEFAULT_
         
         # التحقق من التنسيق المبسط
         if len(lines) < 2:
+            keyboard = [
+                [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
                 "❌ خطأ في تنسيق البيانات!\n\n"
                 "الرجاء إرسال البيانات بالشكل التالي:\n\n"
@@ -1139,9 +1732,9 @@ async def user_management_handler(update: Update, context: ContextTypes.DEFAULT_
                 "Id: 5808690567\n\n"
                 "أو التنسيق الكامل:\n"
                 "@username\n"
-                "Id: user_id\n"
-                "First: FirstName\n"
-                "Last: LastName"
+                "Id: user_id\n\n"
+                "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
+                reply_markup=reply_markup
             )
             return ADD_USER_DATA
         
@@ -1272,6 +1865,7 @@ async def show_password_management_menu(update: Update, context: ContextTypes.DE
     """عرض قائمة إدارة كلمات المرور"""
     keyboard = [
         [InlineKeyboardButton("➕ إضافة كلمة مرور", callback_data="add_password")],
+        [InlineKeyboardButton("🎲 توليد كلمة مرور", callback_data="generate_password")],
         [InlineKeyboardButton("🔍 عرض كلمات المرور", callback_data="view_passwords")],
         [InlineKeyboardButton("✏️ تعديل كلمة مرور", callback_data="edit_password")],
         [InlineKeyboardButton("🗑️ حذف كلمة مرور", callback_data="delete_password")],
@@ -1279,11 +1873,36 @@ async def show_password_management_menu(update: Update, context: ContextTypes.DE
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.callback_query.edit_message_text(
-        "🔐 إدارة كلمات المرور\n\n"
-        "اختر العملية المطلوبة:",
-        reply_markup=reply_markup
-    )
+    # الحصول على عدد كلمات المرور الموجودة
+    passwords = db_manager.get_all_passwords()
+    password_count = len(passwords)
+    
+    if update.callback_query:
+        # عند استخدام callback_query، نعدل الرسالة الحالية
+        await update.callback_query.edit_message_text(
+            f"🔐 إدارة كلمات المرور\n\n"
+            f"📊 إجمالي كلمات المرور: {password_count}\n\n"
+            f"اختر العملية المطلوبة:\n\n"
+            f"➕ إضافة كلمة مرور - إضافة كلمة مرور لموظف جديد\n"
+            f"🎲 توليد كلمة مرور - توليد كلمة مرور عشوائية\n"
+            f"🔍 عرض كلمات المرور - عرض جميع كلمات المرور المحفوظة\n"
+            f"✏️ تعديل كلمة مرور - تغيير كلمة مرور موظف موجود\n"
+            f"🗑️ حذف كلمة مرور - حذف كلمة مرور موظف",
+            reply_markup=reply_markup
+        )
+    else:
+        # عند استخدام message، نرسل رسالة جديدة
+        await update.message.reply_text(
+            f"🔐 إدارة كلمات المرور\n\n"
+            f"📊 إجمالي كلمات المرور: {password_count}\n\n"
+            f"اختر العملية المطلوبة:\n\n"
+            f"➕ إضافة كلمة مرور - إضافة كلمة مرور لموظف جديد\n"
+            f"🎲 توليد كلمة مرور - توليد كلمة مرور عشوائية\n"
+            f"🔍 عرض كلمات المرور - عرض جميع كلمات المرور المحفوظة\n"
+            f"✏️ تعديل كلمة مرور - تغيير كلمة مرور موظف موجود\n"
+            f"🗑️ حذف كلمة مرور - حذف كلمة مرور موظف",
+            reply_markup=reply_markup
+        )
 
 async def password_management_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالج أزرار إدارة كلمات المرور"""
@@ -1291,17 +1910,87 @@ async def password_management_callback_handler(update: Update, context: ContextT
     await query.answer()
     
     if query.data == "add_password":
-        await query.edit_message_text(
-            "➕ إضافة كلمة مرور جديدة\n\n"
-            "الرجاء إدخال اسم الموظف وكلمة المرور بالشكل التالي:\n"
-            "اسم الموظف:كلمة المرور\n\n"
-            "مثال:\n"
-            "أحمد:123456",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")
-            ]])
-        )
-        context.user_data['password_action'] = 'add'
+        # عرض قائمة الموظفين لاختيار الموظف
+        employees = db_manager.get_all_employees()
+        if employees:
+            keyboard = []
+            for employee in employees:
+                keyboard.append([InlineKeyboardButton(f"👤 {employee}", callback_data=f"select_employee_add_{employee}")])
+            keyboard.append([InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")])
+            
+            await query.edit_message_text(
+                "➕ إضافة كلمة مرور جديدة\n\n"
+                "اختر الموظف لإضافة كلمة المرور له:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            await query.edit_message_text(
+                "❌ لا يوجد موظفين في النظام!\n\n"
+                "يجب إضافة موظفين أولاً من قسم إدارة المستخدمين.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")
+                ]])
+            )
+        return PASSWORD_MANAGEMENT
+    
+    elif query.data == "generate_password":
+        # عرض قائمة الموظفين لاختيار الموظف
+        employees = db_manager.get_all_employees()
+        if employees:
+            keyboard = []
+            for employee in employees:
+                keyboard.append([InlineKeyboardButton(f"👤 {employee}", callback_data=f"select_employee_generate_{employee}")])
+            keyboard.append([InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")])
+            
+            await query.edit_message_text(
+                "🎲 توليد كلمة مرور عشوائية\n\n"
+                "اختر الموظف لتوليد كلمة مرور عشوائية له:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            await query.edit_message_text(
+                "❌ لا يوجد موظفين في النظام!\n\n"
+                "يجب إضافة موظفين أولاً من قسم إدارة المستخدمين.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")
+                ]])
+            )
+        return PASSWORD_MANAGEMENT
+    
+    elif query.data.startswith("select_employee_generate_"):
+        employee = query.data.replace("select_employee_generate_", "")
+        context.user_data['selected_employee'] = employee
+        context.user_data['password_action'] = 'generate'
+        
+        # توليد كلمة مرور عشوائية
+        import random
+        import string
+        
+        # توليد كلمة مرور من 8 أحرف تحتوي على أحرف وأرقام
+        password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+        
+        # حفظ كلمة المرور
+        if db_manager.set_employee_password(employee, password):
+            keyboard = [
+                [InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                f"✅ تم توليد كلمة مرور عشوائية بنجاح!\n\n"
+                f"👤 الموظف: {employee}\n"
+                f"🔐 كلمة المرور الجديدة: {password}\n\n"
+                f"💡 يرجى إبلاغ الموظف بكلمة المرور الجديدة.",
+                reply_markup=reply_markup
+            )
+        else:
+            keyboard = [
+                [InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                f"❌ فشل في توليد كلمة المرور لـ {employee}",
+                reply_markup=reply_markup
+            )
         return PASSWORD_MANAGEMENT
     
     elif query.data == "view_passwords":
@@ -1309,43 +1998,171 @@ async def password_management_callback_handler(update: Update, context: ContextT
         if passwords:
             text = "🔍 كلمات المرور الحالية:\n\n"
             for i, (employee, password) in enumerate(passwords, 1):
-                text += f"{i}. {employee}: {'*' * len(password)}\n"
+                # إظهار كلمة المرور بشكل مقنع
+                masked_password = password[0] + '*' * (len(password) - 2) + password[-1] if len(password) > 2 else '*' * len(password)
+                text += f"{i}. 👤 {employee}\n   🔐 {masked_password}\n\n"
+            
+            text += f"📊 إجمالي كلمات المرور: {len(passwords)}"
         else:
             text = "❌ لا توجد كلمات مرور محفوظة."
         
+        keyboard = [
+            [InlineKeyboardButton("👁️ إظهار كلمات المرور", callback_data="show_passwords")],
+            [InlineKeyboardButton("🔄 تحديث", callback_data="view_passwords")],
+            [InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")]
+        ]
+        
         await query.edit_message_text(
             text,
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")
-            ]])
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return PASSWORD_MANAGEMENT
+    
+    elif query.data == "show_passwords":
+        passwords = db_manager.get_all_passwords()
+        if passwords:
+            text = "🔍 كلمات المرور الحالية (مفصلة):\n\n"
+            for i, (employee, password) in enumerate(passwords, 1):
+                text += f"{i}. 👤 {employee}\n   🔐 {password}\n\n"
+            
+            text += f"📊 إجمالي كلمات المرور: {len(passwords)}"
+        else:
+            text = "❌ لا توجد كلمات مرور محفوظة."
+        
+        keyboard = [
+            [InlineKeyboardButton("🙈 إخفاء كلمات المرور", callback_data="view_passwords")],
+            [InlineKeyboardButton("🔄 تحديث", callback_data="show_passwords")],
+            [InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")]
+        ]
+        
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return PASSWORD_MANAGEMENT
     
     elif query.data == "edit_password":
-        await query.edit_message_text(
-            "✏️ تعديل كلمة مرور\n\n"
-            "الرجاء إدخال اسم الموظف وكلمة المرور الجديدة بالشكل التالي:\n"
-            "اسم الموظف:كلمة المرور الجديدة\n\n"
-            "مثال:\n"
-            "أحمد:654321",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")
-            ]])
-        )
-        context.user_data['password_action'] = 'edit'
+        # عرض قائمة الموظفين الذين لديهم كلمات مرور
+        employees_with_passwords = db_manager.get_employees_with_passwords()
+        if employees_with_passwords:
+            keyboard = []
+            for employee in employees_with_passwords:
+                keyboard.append([InlineKeyboardButton(f"👤 {employee}", callback_data=f"select_employee_edit_{employee}")])
+            keyboard.append([InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")])
+            
+            await query.edit_message_text(
+                "✏️ تعديل كلمة مرور\n\n"
+                "اختر الموظف لتعديل كلمة المرور الخاصة به:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            await query.edit_message_text(
+                "❌ لا توجد كلمات مرور محفوظة!\n\n"
+                "يجب إضافة كلمات مرور أولاً.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")
+                ]])
+            )
         return PASSWORD_MANAGEMENT
     
     elif query.data == "delete_password":
+        # عرض قائمة الموظفين الذين لديهم كلمات مرور
+        employees_with_passwords = db_manager.get_employees_with_passwords()
+        if employees_with_passwords:
+            keyboard = []
+            for employee in employees_with_passwords:
+                keyboard.append([InlineKeyboardButton(f"🗑️ {employee}", callback_data=f"select_employee_delete_{employee}")])
+            keyboard.append([InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")])
+            
+            await query.edit_message_text(
+                "🗑️ حذف كلمة مرور\n\n"
+                "اختر الموظف لحذف كلمة المرور الخاصة به:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            await query.edit_message_text(
+                "❌ لا توجد كلمات مرور محفوظة!",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")
+                ]])
+            )
+        return PASSWORD_MANAGEMENT
+    
+    elif query.data.startswith("select_employee_add_"):
+        employee = query.data.replace("select_employee_add_", "")
+        context.user_data['selected_employee'] = employee
+        context.user_data['password_action'] = 'add'
+        
         await query.edit_message_text(
-            "🗑️ حذف كلمة مرور\n\n"
-            "الرجاء إدخال اسم الموظف:\n\n"
-            "مثال:\n"
-            "أحمد",
+            f"➕ إضافة كلمة مرور لـ {employee}\n\n"
+            "الرجاء إدخال كلمة المرور الجديدة:",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")
             ]])
         )
-        context.user_data['password_action'] = 'delete'
+        return PASSWORD_MANAGEMENT
+    
+    elif query.data.startswith("select_employee_edit_"):
+        employee = query.data.replace("select_employee_edit_", "")
+        context.user_data['selected_employee'] = employee
+        context.user_data['password_action'] = 'edit'
+        
+        # عرض كلمة المرور الحالية
+        current_password = db_manager.get_employee_password(employee)
+        if current_password:
+            masked_password = current_password[0] + '*' * (len(current_password) - 2) + current_password[-1] if len(current_password) > 2 else '*' * len(current_password)
+            await query.edit_message_text(
+                f"✏️ تعديل كلمة مرور لـ {employee}\n\n"
+                f"كلمة المرور الحالية: {masked_password}\n\n"
+                "الرجاء إدخال كلمة المرور الجديدة:",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")
+                ]])
+            )
+        else:
+            await query.edit_message_text(
+                f"❌ لا توجد كلمة مرور لـ {employee}",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")
+                ]])
+            )
+        return PASSWORD_MANAGEMENT
+    
+    elif query.data.startswith("select_employee_delete_"):
+        employee = query.data.replace("select_employee_delete_", "")
+        context.user_data['selected_employee'] = employee
+        
+        # طلب تأكيد الحذف
+        keyboard = [
+            [InlineKeyboardButton("✅ نعم، احذف", callback_data=f"confirm_delete_{employee}")],
+            [InlineKeyboardButton("❌ لا، إلغاء", callback_data="back_to_password_menu")]
+        ]
+        
+        await query.edit_message_text(
+            f"🗑️ تأكيد حذف كلمة المرور\n\n"
+            f"هل أنت متأكد من حذف كلمة المرور الخاصة بـ {employee}؟",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return PASSWORD_MANAGEMENT
+    
+    elif query.data.startswith("confirm_delete_"):
+        employee = query.data.replace("confirm_delete_", "")
+        
+        if db_manager.delete_employee_password(employee):
+            await query.edit_message_text(
+                f"✅ تم حذف كلمة المرور بنجاح!\n\n"
+                f"الموظف: {employee}",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")
+                ]])
+            )
+        else:
+            await query.edit_message_text(
+                f"❌ فشل في حذف كلمة المرور لـ {employee}",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")
+                ]])
+            )
         return PASSWORD_MANAGEMENT
     
     elif query.data == "back_to_password_menu":
@@ -1353,80 +2170,149 @@ async def password_management_callback_handler(update: Update, context: ContextT
     
     elif query.data == "back_to_admin":
         return await show_admin_menu(update, context)
+    
+    # إضافة return افتراضي
+    return PASSWORD_MANAGEMENT
 
 async def password_management_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالج إدارة كلمات المرور"""
-    text = update.message.text
+    text = update.message.text.strip()
     action = context.user_data.get('password_action', '')
+    selected_employee = context.user_data.get('selected_employee', '')
     
     if action == 'add':
         try:
-            if ':' not in text:
+            if not text:
+                keyboard = [
+                    [InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
                 await update.message.reply_text(
-                    "❌ خطأ في التنسيق!\n\n"
-                    "الرجاء استخدام التنسيق:\n"
-                    "اسم الموظف:كلمة المرور"
+                    "❌ كلمة المرور فارغة!\n\n"
+                    "الرجاء إدخال كلمة مرور صحيحة.",
+                    reply_markup=reply_markup
                 )
                 return PASSWORD_MANAGEMENT
             
-            employee_name, password = text.split(':', 1)
-            employee_name = employee_name.strip()
-            password = password.strip()
+            if len(text) < 4:
+                keyboard = [
+                    [InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(
+                    "❌ كلمة المرور قصيرة جداً!\n\n"
+                    "يجب أن تكون كلمة المرور 4 أحرف على الأقل.",
+                    reply_markup=reply_markup
+                )
+                return PASSWORD_MANAGEMENT
             
-            if db_manager.set_employee_password(employee_name, password):
+            if db_manager.set_employee_password(selected_employee, text):
+                keyboard = [
+                    [InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
                 await update.message.reply_text(
                     f"✅ تم إضافة كلمة المرور بنجاح!\n\n"
-                    f"الموظف: {employee_name}\n"
-                    f"كلمة المرور: {password}"
+                    f"👤 الموظف: {selected_employee}\n"
+                    f"🔐 كلمة المرور: {text}",
+                    reply_markup=reply_markup
                 )
             else:
-                await update.message.reply_text("❌ فشل في إضافة كلمة المرور.")
+                keyboard = [
+                    [InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(
+                    "❌ فشل في إضافة كلمة المرور.",
+                    reply_markup=reply_markup
+                )
             
         except Exception as e:
-            await update.message.reply_text(f"❌ خطأ: {e}")
+            keyboard = [
+                [InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                f"❌ خطأ: {e}",
+                reply_markup=reply_markup
+            )
     
     elif action == 'edit':
         try:
-            if ':' not in text:
+            if not text:
+                keyboard = [
+                    [InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
                 await update.message.reply_text(
-                    "❌ خطأ في التنسيق!\n\n"
-                    "الرجاء استخدام التنسيق:\n"
-                    "اسم الموظف:كلمة المرور الجديدة"
+                    "❌ كلمة المرور فارغة!\n\n"
+                    "الرجاء إدخال كلمة مرور صحيحة.",
+                    reply_markup=reply_markup
                 )
                 return PASSWORD_MANAGEMENT
             
-            employee_name, new_password = text.split(':', 1)
-            employee_name = employee_name.strip()
-            new_password = new_password.strip()
+            if len(text) < 4:
+                keyboard = [
+                    [InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(
+                    "❌ كلمة المرور قصيرة جداً!\n\n"
+                    "يجب أن تكون كلمة المرور 4 أحرف على الأقل.",
+                    reply_markup=reply_markup
+                )
+                return PASSWORD_MANAGEMENT
             
-            if db_manager.set_employee_password(employee_name, new_password):
+            if db_manager.set_employee_password(selected_employee, text):
+                keyboard = [
+                    [InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
                 await update.message.reply_text(
                     f"✅ تم تحديث كلمة المرور بنجاح!\n\n"
-                    f"الموظف: {employee_name}\n"
-                    f"كلمة المرور الجديدة: {new_password}"
+                    f"👤 الموظف: {selected_employee}\n"
+                    f"🔐 كلمة المرور الجديدة: {text}",
+                    reply_markup=reply_markup
                 )
             else:
-                await update.message.reply_text("❌ فشل في تحديث كلمة المرور.")
+                keyboard = [
+                    [InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(
+                    "❌ فشل في تحديث كلمة المرور.",
+                    reply_markup=reply_markup
+                )
             
         except Exception as e:
-            await update.message.reply_text(f"❌ خطأ: {e}")
-    
-    elif action == 'delete':
-        employee_name = text.strip()
-        
-        if db_manager.delete_employee_password(employee_name):
+            keyboard = [
+                [InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
-                f"✅ تم حذف كلمة المرور بنجاح!\n\n"
-                f"الموظف: {employee_name}"
+                f"❌ خطأ: {e}",
+                reply_markup=reply_markup
             )
-        else:
-            await update.message.reply_text("❌ فشل في حذف كلمة المرور.")
     
-    # مسح الإجراء من الذاكرة
-    context.user_data.pop('password_action', None)
+    # إذا لم يكن هناك action محدد، إعادة توجيه للقائمة الرئيسية
+    if not action:
+        keyboard = [
+            [InlineKeyboardButton("🔙 العودة", callback_data="back_to_password_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "❌ لا يوجد إجراء محدد!\n\n"
+            "الرجاء اختيار إجراء من القائمة.",
+            reply_markup=reply_markup
+        )
+        return PASSWORD_MANAGEMENT
     
-    # العودة للقائمة الرئيسية
-    return await show_admin_menu(update, context)
+    # مسح البيانات من الذاكرة فقط بعد نجاح العملية
+    if action in ['add', 'edit']:
+        context.user_data.pop('password_action', None)
+        context.user_data.pop('selected_employee', None)
+    
+    return PASSWORD_MANAGEMENT
 
 # ==================== دوال إدارة المرتجعات ====================
 
@@ -1757,57 +2643,74 @@ def main():
                     MessageHandler(filters.TEXT & ~filters.COMMAND, main_menu_handler)
                 ],
                 ADD_INVOICE_SINGLE: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, add_invoice_single_handler)
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, add_invoice_single_handler),
+                    CallbackQueryHandler(input_screens_callback_handler, pattern="^(back_to_admin|back_to_main_menu)$")
                 ],
                 ADMIN_MENU: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu_handler)
                 ],
+                STATISTICS_MENU: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, statistics_menu_handler)
+                ],
                 STATISTICS: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, statistics_handler)
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, statistics_handler),
+                    CallbackQueryHandler(input_screens_callback_handler, pattern="^(back_to_admin|back_to_main_menu)$")
                 ],
                 STATISTICS_PASSWORD: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, statistics_password_handler)
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, statistics_password_handler),
+                    CallbackQueryHandler(input_screens_callback_handler, pattern="^(back_to_admin|back_to_main_menu)$")
                 ],
                 STATISTICS_DATE_SELECTION: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, statistics_date_selection_handler)
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, statistics_date_selection_handler),
+                    CallbackQueryHandler(input_screens_callback_handler, pattern="^(back_to_admin|back_to_main_menu)$")
                 ],
                 STATISTICS_EXPORT: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: show_admin_menu(u, c))
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: show_admin_menu(u, c)),
+                    CallbackQueryHandler(input_screens_callback_handler, pattern="^(back_to_admin|back_to_main_menu)$")
                 ],
                 ALL_EMPLOYEES_DATE_SELECTION: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, all_employees_date_selection_handler)
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, all_employees_date_selection_handler),
+                    CallbackQueryHandler(input_screens_callback_handler, pattern="^(back_to_admin|back_to_main_menu)$")
                 ],
                 USER_MANAGEMENT_MENU: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, user_management_handler)
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, user_management_handler),
+                    CallbackQueryHandler(input_screens_callback_handler, pattern="^(back_to_admin|back_to_main_menu)$")
                 ],
                 ADD_USER_ROLE: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, user_management_handler)
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, user_management_handler),
+                    CallbackQueryHandler(input_screens_callback_handler, pattern="^(back_to_admin|back_to_main_menu)$")
                 ],
                 ADD_USER_DATA: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, user_management_handler)
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, user_management_handler),
+                    CallbackQueryHandler(input_screens_callback_handler, pattern="^(back_to_admin|back_to_main_menu)$")
                 ],
                 PASSWORD_MANAGEMENT: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, password_management_handler)
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, password_management_handler),
+                    CallbackQueryHandler(password_management_callback_handler, pattern="^(add_password|generate_password|view_passwords|show_passwords|edit_password|delete_password|back_to_password_menu|back_to_admin|select_employee_add_|select_employee_generate_|select_employee_edit_|select_employee_delete_|confirm_delete_)$"),
+                    CallbackQueryHandler(input_screens_callback_handler, pattern="^(back_to_admin|back_to_main_menu)$")
                 ],
                 RETURNS_MENU: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: show_returns_management_menu(u, c))
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: show_returns_management_menu(u, c)),
+                    CallbackQueryHandler(input_screens_callback_handler, pattern="^(back_to_admin|back_to_main_menu)$")
                 ],
                 RETURN_INVOICE_SELECTION: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, return_invoice_selection_handler)
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, return_invoice_selection_handler),
+                    CallbackQueryHandler(input_screens_callback_handler, pattern="^(back_to_admin|back_to_main_menu)$")
                 ],
                 RETURN_TYPE_SELECTION: [
-                    CallbackQueryHandler(return_type_callback_handler)
+                    CallbackQueryHandler(return_type_callback_handler),
+                    CallbackQueryHandler(input_screens_callback_handler, pattern="^(back_to_admin|back_to_main_menu)$")
                 ],
                 RETURN_QUANTITY_INPUT: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, return_quantity_input_handler)
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, return_quantity_input_handler),
+                    CallbackQueryHandler(input_screens_callback_handler, pattern="^(back_to_admin|back_to_main_menu)$")
                 ],
                 RETURN_REASON_INPUT: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, return_reason_input_handler)
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, return_reason_input_handler),
+                    CallbackQueryHandler(input_screens_callback_handler, pattern="^(back_to_admin|back_to_main_menu)$")
                 ],
             },
-            fallbacks=[CommandHandler("cancel", cancel)],
-            per_chat=True,
-            per_user=True
+            fallbacks=[CommandHandler("cancel", cancel)]
         )
         
         # إضافة المعالجات
@@ -1845,9 +2748,42 @@ def main():
         app.add_handler(CallbackQueryHandler(user_management_callback_handler, pattern="^(add_user|back_to_admin|back_to_user_management)$"))
         app.add_handler(CallbackQueryHandler(add_user_role_handler, pattern="^role_"))
         app.add_handler(CallbackQueryHandler(export_callback_handler, pattern="^(export_|back_to_admin_menu)$"))
-        app.add_handler(CallbackQueryHandler(password_management_callback_handler, pattern="^(add_password|view_passwords|edit_password|delete_password|back_to_password_menu|back_to_admin)$"))
+        app.add_handler(CallbackQueryHandler(shipping_callback_handler, pattern="^(shipping_all|shipping_1|shipping_2|shipping_7|shipping_30|shipping_90|shipping_new|back_to_main_menu)$"))
+        app.add_handler(CallbackQueryHandler(password_management_callback_handler, pattern="^(add_password|generate_password|view_passwords|show_passwords|edit_password|delete_password|back_to_password_menu|back_to_admin|select_employee_add_|select_employee_generate_|select_employee_edit_|select_employee_delete_|confirm_delete_)$"))
         app.add_handler(CallbackQueryHandler(returns_management_callback_handler, pattern="^(add_return|view_returns|stats_with_returns|back_to_returns_menu|back_to_admin)$"))
         app.add_handler(CallbackQueryHandler(return_type_callback_handler, pattern="^(return_full|return_partial|back_to_returns_menu)$"))
+        app.add_handler(CallbackQueryHandler(statistics_menu_callback_handler, pattern="^(back_to_statistics_menu)$"))
+        app.add_handler(CallbackQueryHandler(date_selection_callback_handler, pattern="^(date_today|date_week|date_month|date_year|date_custom)_"))
+        app.add_handler(CallbackQueryHandler(all_employees_date_callback_handler, pattern="^(all_employees_date_today|all_employees_date_week|all_employees_date_month|all_employees_date_year|all_employees_date_custom)$"))
+        app.add_handler(CallbackQueryHandler(input_screens_callback_handler, pattern="^(back_to_admin|back_to_main_menu)$"))
+        
+        # إضافة معالج عام للأزرار التفاعلية للتعامل مع الأزرار غير المعالجة
+        async def general_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+            """معالج عام للأزرار التفاعلية"""
+            query = update.callback_query
+            await query.answer()
+            
+            if query.data == "back_to_returns_menu":
+                return await show_returns_management_menu(update, context)
+            elif query.data == "back_to_admin_menu":
+                return await start(update, context)
+            elif query.data == "back_to_user_management":
+                return await start(update, context)
+            elif query.data == "back_to_password_menu":
+                return await start(update, context)
+            elif query.data in ["add_password", "generate_password", "view_passwords", "show_passwords", "edit_password", "delete_password"]:
+                # إعادة توجيه لأزرار إدارة كلمات المرور
+                return await password_management_callback_handler(update, context)
+            elif query.data.startswith("select_employee_") or query.data.startswith("confirm_delete_"):
+                # إعادة توجيه لأزرار اختيار الموظفين
+                return await password_management_callback_handler(update, context)
+            elif query.data.startswith("shipping_"):
+                # إعادة توجيه لأزرار الشحن
+                return await shipping_callback_handler(update, context)
+            else:
+                await query.answer("⚠️ هذا الزر غير متاح حالياً")
+        
+        app.add_handler(CallbackQueryHandler(general_callback_handler))
         
         print("✅ البوت جاهز للعمل! (الإصدار النظيف)")
         print("📱 يمكنك الآن استخدام البوت في تيليجرام")

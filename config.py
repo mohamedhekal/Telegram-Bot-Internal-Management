@@ -2,8 +2,8 @@ import os
 # Removed dotenv loading since token is hardcoded
 
 # Telegram Bot Token
-TELEGRAM_TOKEN = "22*0************************1Po*****************M22"
-
+# TELEGRAM_TOKEN = "8200047179:AAGIO3WIZT4GcxEMEcI1PoXOtrNkHDAmMYw"
+TELEGRAM_TOKEN = "8421954162:AAEpPfhw61cCy60Ql_deD-ToEBJvbZ3r7_o"
 # Database Settings
 DATABASE_PATH = "invoice_bot.db"
 
@@ -17,7 +17,7 @@ REPORT_INTERVAL_HOURS = 24  # كل 24 ساعة
 SHIPPING_TEMPLATE_FILE = "rocklis.xls"
 
 # Allowed Users (Telegram User IDs)
-ALLOWED_USERS = {788101322, 6842382908, 1801438595, 5808690567 , 1849001861}  # يمكن إضافة المزيد من الموظفين هنا
+ALLOWED_USERS = {788101322, 6842382908, 1801438595, 5808690567, 1849001861, 5368965836, 1871428204, 844380852, 1334676785}  # يمكن إضافة المزيد من الموظفين هنا
 
 # Bot States
 MAIN_MENU = 0

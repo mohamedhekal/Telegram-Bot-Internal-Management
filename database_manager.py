@@ -99,6 +99,19 @@ class DatabaseManager:
             )
         ''')
         
+        # جدول تتبع الطلبات المصدرة
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS exported_invoices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                invoice_id INTEGER,
+                receipt_number TEXT,
+                export_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                export_type TEXT,
+                exported_by INTEGER,
+                FOREIGN KEY (invoice_id) REFERENCES invoices (id)
+            )
+        ''')
+        
         conn.commit()
         conn.close()
     
@@ -207,17 +220,26 @@ class DatabaseManager:
             print(f"خطأ في الحصول على الإحصائيات: {e}")
             return None
     
-    def get_all_invoices_for_shipping(self, days=1):
+    def get_all_invoices_for_shipping(self, days=1, export_type="period", user_id=None):
         """الحصول على جميع الفواتير لملف شركة التوصيل"""
         try:
             conn = self.get_connection()
             
-            # الحصول على الفواتير للآخر X أيام
-            query = '''
-                SELECT * FROM invoices 
-                WHERE created_at >= datetime('now', '-{} days')
-                ORDER BY created_at DESC
-            '''.format(days)
+            if export_type == "new_only":
+                # الحصول على الطلبات الجديدة فقط (غير مصدرة من قبل)
+                query = '''
+                    SELECT i.* FROM invoices i
+                    LEFT JOIN exported_invoices e ON i.id = e.invoice_id
+                    WHERE e.invoice_id IS NULL
+                    ORDER BY i.created_at DESC
+                '''
+            else:
+                # الحصول على الفواتير للفترة المحددة
+                query = '''
+                    SELECT * FROM invoices 
+                    WHERE created_at >= datetime('now', '-{} days')
+                    ORDER BY created_at DESC
+                '''.format(days)
             
             df = pd.read_sql_query(query, conn)
             conn.close()
@@ -227,101 +249,242 @@ class DatabaseManager:
             print(f"خطأ في الحصول على فواتير التوصيل: {e}")
             return None
     
-    def create_shipping_excel(self, days=1):
-        """إنشاء ملف Excel لشركة التوصيل باستخدام قالب محدد"""
+    def mark_invoices_as_exported(self, invoice_ids, export_type, user_id):
+        """تحديد الطلبات كمصدرة"""
         try:
-            df = self.get_all_invoices_for_shipping(days)
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            for invoice_id in invoice_ids:
+                cursor.execute('''
+                    INSERT OR IGNORE INTO exported_invoices 
+                    (invoice_id, receipt_number, export_type, exported_by)
+                    SELECT id, receipt_number, ?, ? FROM invoices WHERE id = ?
+                ''', (export_type, user_id, invoice_id))
+            
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"خطأ في تحديد الطلبات كمصدرة: {e}")
+            return False
+    
+    def get_export_stats(self):
+        """الحصول على إحصائيات التصدير"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            # إجمالي الطلبات
+            cursor.execute("SELECT COUNT(*) FROM invoices")
+            total_invoices = cursor.fetchone()[0]
+            
+            # الطلبات المصدرة
+            cursor.execute("SELECT COUNT(DISTINCT invoice_id) FROM exported_invoices")
+            exported_invoices = cursor.fetchone()[0]
+            
+            # الطلبات الجديدة (غير مصدرة)
+            new_invoices = total_invoices - exported_invoices
+            
+            # آخر تصدير
+            cursor.execute("""
+                SELECT export_date, export_type, COUNT(*) as count 
+                FROM exported_invoices 
+                GROUP BY export_date, export_type 
+                ORDER BY export_date DESC 
+                LIMIT 1
+            """)
+            last_export = cursor.fetchone()
+            
+            conn.close()
+            
+            return {
+                'total_invoices': total_invoices,
+                'exported_invoices': exported_invoices,
+                'new_invoices': new_invoices,
+                'last_export': last_export
+            }
+        except Exception as e:
+            print(f"خطأ في الحصول على إحصائيات التصدير: {e}")
+            return None
+    
+    def create_shipping_excel(self, days=1, export_type="period", user_id=None):
+        """إنشاء ملف Excel لشركة التوصيل باستخدام القالب الجديد"""
+        try:
+            df = self.get_all_invoices_for_shipping(days, export_type, user_id)
             if df is None or df.empty:
                 print("لا توجد فواتير لإنشاء ملف التوصيل.")
                 return None
 
-            template_path = config.SHIPPING_TEMPLATE_FILE
-            
-            if not os.path.exists(template_path):
-                print(f"خطأ: قالب شركة التوصيل غير موجود في المسار: {template_path}")
-                return self._create_new_shipping_excel(df)
+            # إنشاء ملف إكسل بالشكل الجديد المطلوب
+            return self._create_new_shipping_template_excel(df, user_id, export_type)
 
-            try:
-                workbook = openpyxl.load_workbook(template_path)
-                sheet = workbook.active
-            except Exception as e:
-                print(f"خطأ في تحميل قالب Excel: {e}. سيتم إنشاء ملف جديد.")
-                return self._create_new_shipping_excel(df)
-
-            # مسح البيانات الموجودة مع الحفاظ على العناوين
-            for row in sheet.iter_rows(min_row=2):
-                for cell in row:
-                    cell.value = None
-            for row_idx in range(sheet.max_row, 1, -1):
-                if all(cell.value is None for cell in sheet[row_idx]):
-                    sheet.delete_rows(row_idx)
-
-            # إضافة البيانات الجديدة
-            data_to_append = []
-            for index, row in df.iterrows():
-                data_to_append.append([
-                    row['receipt_number'],
-                    row['client_name'],
-                    row['client_phone'],
-                    row['governorate'],
-                    row['nearest_point'],
-                    row['quantity'],
-                    row['price'],
-                    "لا",
-                    row['notes']
-                ])
-
-            for row_data in data_to_append:
-                sheet.append(row_data)
-
-            output_filename = f"shipping_orders_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            workbook.save(output_filename)
-            
-            print(f"تم إنشاء ملف التوصيل بنجاح: {output_filename}")
-            return output_filename
-
-        except Exception as e:
-            print(f"خطأ في إنشاء ملف التوصيل باستخدام القالب: {e}")
-            return None
-
-    def _create_new_shipping_excel(self, df):
-        """إنشاء ملف Excel جديد في حالة عدم وجود القالب"""
-        try:
-            filename = f"shipping_orders_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-            
-            with pd.ExcelWriter(filename, engine='openpyxl') as writer:
-                df.to_excel(writer, sheet_name='Shipping Data', index=False)
-                
-                # تنسيق الملف
-                workbook = writer.book
-                worksheet = writer.sheets['Shipping Data']
-                
-                # تنسيق العناوين
-                header_font = Font(bold=True, color="FFFFFF")
-                header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
-                
-                for cell in worksheet[1]:
-                    cell.font = header_font
-                    cell.fill = header_fill
-                    cell.alignment = Alignment(horizontal="center")
-                
-                # تعديل عرض الأعمدة
-                for column in worksheet.columns:
-                    max_length = 0
-                    column_letter = column[0].column_letter
-                    for cell in column:
-                        try:
-                            if len(str(cell.value)) > max_length:
-                                max_length = len(str(cell.value))
-                        except:
-                            pass
-                    adjusted_width = min(max_length + 2, 50)
-                    worksheet.column_dimensions[column_letter].width = adjusted_width
-            
-            return filename
         except Exception as e:
             print(f"خطأ في إنشاء ملف التوصيل: {e}")
             return None
+
+    def _create_new_shipping_template_excel(self, df, user_id=None, export_type="period"):
+        """إنشاء ملف Excel بالشكل الجديد المطلوب"""
+        try:
+            from openpyxl.styles import Border, Side
+            
+            # قاموس مفاتيح المحافظات
+            GOVERNORATE_CODES = {
+                'بغداد': 'BGD',
+                'الناصرية ذي قار': 'NAS',
+                'ديالى': 'DYL',
+                'الكوت واسط': 'KOT',
+                'كربلاء': 'KRB',
+                'دهوك': 'DOH',
+                'بابل الحلة': 'BBL',
+                'النجف': 'NJF',
+                'البصرة': 'BAS',
+                'اربيل': 'ARB',
+                'كركوك': 'KRK',
+                'السليمانيه': 'SMH',
+                'صلاح الدين': 'SAH',
+                'الانبار رمادي': 'ANB',
+                'السماوة المثنى': 'SAM',
+                'موصل': 'MOS',
+                'الديوانية': 'DWN',
+                'العمارة ميسان': 'AMA'
+            }
+            
+            def get_governorate_code(governorate_name):
+                """الحصول على شفرة المحافظة من الاسم"""
+                if governorate_name in GOVERNORATE_CODES:
+                    return GOVERNORATE_CODES[governorate_name]
+                
+                for name, code in GOVERNORATE_CODES.items():
+                    if governorate_name in name or name in governorate_name:
+                        return code
+                
+                return governorate_name
+            
+            filename = f"طلبات_التوصيل_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            
+            with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+                # تحويل البيانات إلى الشكل المطلوب
+                converted_data = []
+                for index, row in df.iterrows():
+                    converted_row = {
+                        'ملاحظات': row.get('notes', ''),
+                        'عدد القطع\nأجباري': row.get('quantity', 0),
+                        'يحتوي على ارجاع بضاعة؟': 'لا',
+                        'هاتف المستلم\nأجباري 11 خانة': row.get('client_phone', ''),
+                        'تفاصيل العنوان\nأجباري': row.get('nearest_point', ''),
+                        'شفرة المحافظة\nأجباري': get_governorate_code(row.get('governorate', '')),
+                        'أسم المستلم': row.get('client_name', ''),
+                        'المبلغ عراقي\nكامل بالالاف .\nفي حال عدم توفره سيعتبر 0': row.get('total_sales', 0)
+                    }
+                    converted_data.append(converted_row)
+                
+                # إنشاء DataFrame جديد
+                new_df = pd.DataFrame(converted_data)
+                
+                # كتابة البيانات الرئيسية
+                new_df.to_excel(writer, sheet_name='طلبات الشحن', index=False)
+                
+                # الحصول على ورقة العمل
+                workbook = writer.book
+                worksheet = writer.sheets['طلبات الشحن']
+                
+                # تنسيق العناوين
+                header_font = Font(bold=True, color="FFFFFF", size=12)
+                header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+                header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                
+                # تنسيق حدود العناوين
+                thin_border = Border(
+                    left=Side(style='thin'),
+                    right=Side(style='thin'),
+                    top=Side(style='thin'),
+                    bottom=Side(style='thin')
+                )
+                
+                # تطبيق التنسيق على العناوين
+                for cell in worksheet[1]:
+                    cell.font = header_font
+                    cell.fill = header_fill
+                    cell.alignment = header_alignment
+                    cell.border = thin_border
+                
+                # تعديل عرض الأعمدة
+                column_widths = {
+                    'A': 20,  # ملاحظات
+                    'B': 15,  # عدد القطع
+                    'C': 25,  # ارجاع بضاعة
+                    'D': 25,  # هاتف المستلم
+                    'E': 30,  # تفاصيل العنوان
+                    'F': 20,  # شفرة المحافظة
+                    'G': 20,  # أسم المستلم
+                    'H': 35   # المبلغ عراقي
+                }
+                
+                for col_letter, width in column_widths.items():
+                    worksheet.column_dimensions[col_letter].width = width
+                
+                # تنسيق البيانات
+                data_alignment = Alignment(horizontal="center", vertical="center")
+                data_border = Border(
+                    left=Side(style='thin'),
+                    right=Side(style='thin'),
+                    top=Side(style='thin'),
+                    bottom=Side(style='thin')
+                )
+                
+                # تطبيق التنسيق على البيانات
+                for row in worksheet.iter_rows(min_row=2):
+                    for cell in row:
+                        cell.alignment = data_alignment
+                        cell.border = data_border
+                
+                # إنشاء ورقة مفاتيح المحافظات
+                governorate_sheet = workbook.create_sheet("مفاتيح المحافظات")
+                
+                # إضافة مفاتيح المحافظات
+                governorate_data = []
+                for governorate, code in GOVERNORATE_CODES.items():
+                    governorate_data.append([governorate, code])
+                
+                governorate_df = pd.DataFrame(governorate_data, columns=['المحافظة', 'الشفرة'])
+                governorate_df.to_excel(writer, sheet_name='مفاتيح المحافظات', index=False)
+                
+                # تنسيق ورقة مفاتيح المحافظات
+                gov_worksheet = writer.sheets['مفاتيح المحافظات']
+                
+                # تنسيق العناوين
+                for cell in gov_worksheet[1]:
+                    cell.font = header_font
+                    cell.fill = header_fill
+                    cell.alignment = header_alignment
+                    cell.border = thin_border
+                
+                # تعديل عرض الأعمدة
+                gov_worksheet.column_dimensions['A'].width = 25
+                gov_worksheet.column_dimensions['B'].width = 15
+                
+                # تنسيق البيانات
+                for row in gov_worksheet.iter_rows(min_row=2):
+                    for cell in row:
+                        cell.alignment = data_alignment
+                        cell.border = data_border
+            
+            # تحديد الطلبات كمصدرة إذا كان المستخدم محدد
+            if user_id and not df.empty:
+                invoice_ids = df['id'].tolist()
+                self.mark_invoices_as_exported(invoice_ids, export_type, user_id)
+            
+            print(f"تم إنشاء ملف التوصيل بالشكل الجديد بنجاح: {filename}")
+            return filename
+            
+        except Exception as e:
+            print(f"خطأ في إنشاء ملف التوصيل بالشكل الجديد: {e}")
+            return None
+
+    def _create_new_shipping_excel(self, df, user_id=None, export_type="period"):
+        """إنشاء ملف Excel جديد في حالة عدم وجود القالب (للتوافق)"""
+        return self._create_new_shipping_template_excel(df, user_id, export_type)
     
     def add_user(self, telegram_id, username, full_name, role="employee"):
         """إضافة مستخدم جديد"""
@@ -356,6 +519,68 @@ class DatabaseManager:
             print(f"خطأ في الحصول على دور المستخدم: {e}")
             return "employee"
     
+    def get_all_employees(self):
+        """الحصول على قائمة جميع الموظفين"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            # الحصول على الموظفين من جدول users أولاً
+            cursor.execute('''
+                SELECT full_name FROM users 
+                WHERE role IN ('employee', 'warehouse_manager')
+                ORDER BY full_name
+            ''')
+            
+            users_results = cursor.fetchall()
+            
+            # الحصول على الموظفين من جدول invoices أيضاً (للتوافق مع النظام القديم)
+            cursor.execute('''
+                SELECT DISTINCT employee_name FROM invoices 
+                ORDER BY employee_name
+            ''')
+            
+            invoices_results = cursor.fetchall()
+            
+            conn.close()
+            
+            # دمج النتائج وإزالة التكرار
+            all_employees = set()
+            
+            # إضافة الموظفين من جدول users
+            for row in users_results:
+                if row[0]:  # التأكد من أن الاسم ليس فارغاً
+                    all_employees.add(row[0])
+            
+            # إضافة الموظفين من جدول invoices
+            for row in invoices_results:
+                if row[0]:  # التأكد من أن الاسم ليس فارغاً
+                    all_employees.add(row[0])
+            
+            return sorted(list(all_employees))
+        except Exception as e:
+            print(f"خطأ في الحصول على قائمة الموظفين: {e}")
+            return []
+    
+    def get_employees_with_passwords(self):
+        """الحصول على قائمة الموظفين الذين لديهم كلمات مرور"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT employee_name FROM employee_passwords 
+                ORDER BY employee_name
+            ''')
+            
+            results = cursor.fetchall()
+            conn.close()
+            
+            return [row[0] for row in results]
+        except Exception as e:
+            print(f"خطأ في الحصول على قائمة الموظفين الذين لديهم كلمات مرور: {e}")
+            return []
+    
     def get_all_employees_stats(self, month=None, year=None):
         """الحصول على إحصائيات جميع الموظفين"""
         try:
@@ -367,6 +592,10 @@ class DatabaseManager:
             conn = self.get_connection()
             cursor = conn.cursor()
             
+            # الحصول على جميع الموظفين أولاً
+            all_employees = self.get_all_employees()
+            
+            # الحصول على إحصائيات الموظفين الذين لديهم فواتير
             cursor.execute('''
                 SELECT 
                     employee_name,
@@ -377,13 +606,40 @@ class DatabaseManager:
                 WHERE strftime('%m', created_at) = ? 
                 AND strftime('%Y', created_at) = ?
                 GROUP BY employee_name
-                ORDER BY total_sales DESC
             ''', (f"{month:02d}", str(year)))
             
-            results = cursor.fetchall()
+            stats_results = cursor.fetchall()
             conn.close()
             
-            return results
+            # إنشاء قاموس للإحصائيات
+            stats_dict = {}
+            for row in stats_results:
+                stats_dict[row[0]] = {
+                    'total_orders': row[1],
+                    'total_quantity': row[2] or 0,
+                    'total_sales': row[3] or 0
+                }
+            
+            # إنشاء قائمة شاملة لجميع الموظفين مع إحصائياتهم
+            all_stats = []
+            for employee in all_employees:
+                if employee in stats_dict:
+                    # الموظف لديه إحصائيات
+                    stats = stats_dict[employee]
+                    all_stats.append((
+                        employee,
+                        stats['total_orders'],
+                        stats['total_quantity'],
+                        stats['total_sales']
+                    ))
+                else:
+                    # الموظف ليس لديه إحصائيات (صفر)
+                    all_stats.append((employee, 0, 0, 0))
+            
+            # ترتيب حسب إجمالي المبيعات (تنازلي)
+            all_stats.sort(key=lambda x: x[3], reverse=True)
+            
+            return all_stats
         except Exception as e:
             print(f"خطأ في الحصول على إحصائيات الموظفين: {e}")
             return []
@@ -428,6 +684,10 @@ class DatabaseManager:
             conn = self.get_connection()
             cursor = conn.cursor()
             
+            # الحصول على جميع الموظفين أولاً
+            all_employees = self.get_all_employees()
+            
+            # الحصول على إحصائيات الموظفين الذين لديهم فواتير
             cursor.execute('''
                 SELECT 
                     employee_name,
@@ -437,13 +697,40 @@ class DatabaseManager:
                 FROM invoices 
                 WHERE DATE(created_at) BETWEEN ? AND ?
                 GROUP BY employee_name
-                ORDER BY total_sales DESC
             ''', (start_date, end_date))
             
-            results = cursor.fetchall()
+            stats_results = cursor.fetchall()
             conn.close()
             
-            return results
+            # إنشاء قاموس للإحصائيات
+            stats_dict = {}
+            for row in stats_results:
+                stats_dict[row[0]] = {
+                    'total_orders': row[1],
+                    'total_quantity': row[2] or 0,
+                    'total_sales': row[3] or 0
+                }
+            
+            # إنشاء قائمة شاملة لجميع الموظفين مع إحصائياتهم
+            all_stats = []
+            for employee in all_employees:
+                if employee in stats_dict:
+                    # الموظف لديه إحصائيات
+                    stats = stats_dict[employee]
+                    all_stats.append((
+                        employee,
+                        stats['total_orders'],
+                        stats['total_quantity'],
+                        stats['total_sales']
+                    ))
+                else:
+                    # الموظف ليس لديه إحصائيات (صفر)
+                    all_stats.append((employee, 0, 0, 0))
+            
+            # ترتيب حسب إجمالي المبيعات (تنازلي)
+            all_stats.sort(key=lambda x: x[3], reverse=True)
+            
+            return all_stats
         except Exception as e:
             print(f"خطأ في الحصول على إحصائيات الموظفين: {e}")
             return []
@@ -806,25 +1093,30 @@ class DatabaseManager:
     def get_all_employees_stats_with_returns(self, month=None, year=None):
         """الحصول على إحصائيات جميع الموظفين مع خصم المرتجعات"""
         try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            
-            # الحصول على جميع الموظفين
-            cursor.execute('''
-                SELECT DISTINCT employee_name FROM invoices
-                UNION
-                SELECT DISTINCT employee_name FROM returns
-            ''')
-            
-            employees = [row[0] for row in cursor.fetchall()]
-            conn.close()
+            # الحصول على جميع الموظفين من دالة get_all_employees
+            all_employees = self.get_all_employees()
             
             # الحصول على إحصائيات كل موظف
             all_stats = []
-            for employee in employees:
+            for employee in all_employees:
                 stats = self.get_employee_stats_with_returns(employee, month, year)
                 if stats:
                     all_stats.append(stats)
+                else:
+                    # إذا لم تكن هناك إحصائيات، إضافة إحصائيات فارغة
+                    all_stats.append({
+                        'employee_name': employee,
+                        'total_invoices': 0,
+                        'total_quantity': 0,
+                        'total_sales': 0,
+                        'returned_quantity': 0,
+                        'returned_amount': 0,
+                        'final_quantity': 0,
+                        'final_sales': 0
+                    })
+            
+            # ترتيب حسب المبيعات النهائية (تنازلي)
+            all_stats.sort(key=lambda x: x['final_sales'], reverse=True)
             
             return all_stats
         except Exception as e:
