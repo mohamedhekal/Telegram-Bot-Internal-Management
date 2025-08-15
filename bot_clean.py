@@ -11,6 +11,7 @@ from telegram.ext import (
 from telegram.error import TimedOut, NetworkError, RetryAfter, Conflict
 import config
 from database_manager import DatabaseManager
+from api_manager import api_manager
 
 # تهيئة مدير قاعدة البيانات
 db_manager = DatabaseManager()
@@ -43,13 +44,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("عذرًا، هذا البوت مخصص لموظفي الشركة فقط.")
             return ConversationHandler.END
 
+        # التحقق من الرسائل المعاد توجيهها
+        if update.message.forward_from or update.message.forward_from_chat:
+            return await handle_forwarded_message(update, context)
+
         # إضافة المستخدم لقاعدة البيانات
         username = update.message.from_user.username or ""
         full_name = update.message.from_user.full_name or ""
         role = "warehouse_manager" if user_id in [config.WAREHOUSE_MANAGER_ID, config.WAREHOUSE_MANAGER_ID_2, config.WAREHOUSE_MANAGER_ID_3] else "employee"
         db_manager.add_user(user_id, username, full_name, role)
 
-                # عرض القائمة المناسبة
+        # عرض القائمة المناسبة
         if user_id in [config.WAREHOUSE_MANAGER_ID, config.WAREHOUSE_MANAGER_ID_2, config.WAREHOUSE_MANAGER_ID_3]:
             # قائمة مدير المخزن - نظام شبكة (3 أزرار في كل صف)
             keyboard = [
@@ -87,6 +92,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالج قائمة مدير المخزن"""
     text = update.message.text
+    
+    # التحقق من الرسائل المعاد توجيهها
+    if update.message.forward_from or update.message.forward_from_chat:
+        return await handle_forwarded_message(update, context)
     
     if text == "📝 إضافة فاتورة":
         keyboard = [
@@ -152,6 +161,63 @@ async def admin_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif text == "�� إدارة كلمات المرور":
         return await show_password_management_menu(update, context)
     
+    elif text == "🌐 حالة API":
+        # الحصول على الطلبات الفاشلة في API
+        failed_orders = db_manager.get_failed_api_orders()
+        
+        if failed_orders:
+            status_text = f"""
+🌐 حالة API - الطلبات الفاشلة
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 عدد الطلبات الفاشلة: {len(failed_orders)}
+
+📋 آخر 5 طلبات فاشلة:
+"""
+            for i, order in enumerate(failed_orders[:5], 1):
+                status_text += f"""
+{i}. رقم الإيصال: {order['receipt_number']}
+   👤 الموظف: {order['employee_name']}
+   👥 العميل: {order['client_name']}
+   💰 المبلغ: {order['total_sales']:,.0f} دينار
+   ⚠️ السبب: {order['api_message']}
+   🔄 المحاولات: {order['retry_count']}
+   📅 التاريخ: {order['sent_at']}
+"""
+        else:
+            status_text = """
+🌐 حالة API
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ جميع الطلبات تم إرسالها بنجاح!
+📊 لا توجد طلبات فاشلة حالياً
+"""
+        
+        # اختبار الاتصال بـ API
+        test_result = api_manager.test_api_connection()
+        if test_result.get('success'):
+            status_text += f"""
+🔗 حالة الاتصال:
+✅ الاتصال بـ API يعمل بشكل صحيح
+📡 رمز الحالة: {test_result.get('status_code', 'غير محدد')}
+"""
+        else:
+            status_text += f"""
+🔗 حالة الاتصال:
+❌ مشكلة في الاتصال بـ API
+⚠️ السبب: {test_result.get('message', 'خطأ غير معروف')}
+"""
+        
+        keyboard = [
+            [InlineKeyboardButton("🔄 إعادة المحاولة للطلبات الفاشلة", callback_data="retry_failed_orders")],
+            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            status_text,
+            reply_markup=reply_markup
+        )
+        return ADMIN_MENU
+    
     elif text == "⚙️ إعدادات النظام":
         await show_system_settings(update, context)
         return await show_admin_menu(update, context)
@@ -177,6 +243,10 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالج القائمة الرئيسية للموظفين"""
     text = update.message.text
     
+    # التحقق من الرسائل المعاد توجيهها
+    if update.message.forward_from or update.message.forward_from_chat:
+        return await handle_forwarded_message(update, context)
+    
     if text == "📝 إضافة فاتورة":
         await update.message.reply_text(
             "📝 إضافة فاتورة جديدة\n\n"
@@ -189,7 +259,7 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "العدد/ 1\n"
             "السعر / 40000\n"
             "الملاحظات/ لاشيئ\n\n"
-            "ملاحظة: استخدم / للفصل بين الحقول",
+            "💡 يمكنك أيضاً إعادة توجيه رسالة تحتوي على بيانات الفاتورة!",
             reply_markup=ReplyKeyboardRemove()
         )
         return ADD_INVOICE_SINGLE
@@ -211,6 +281,410 @@ async def main_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     else:
         await update.message.reply_text("الرجاء اختيار خيار صحيح من القائمة.")
+        return MAIN_MENU
+
+async def handle_forwarded_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالج الرسائل المعاد توجيهها"""
+    try:
+        # التحقق من أن المستخدم مصرح له
+        user_id = update.message.from_user.id
+        if user_id not in config.ALLOWED_USERS:
+            await update.message.reply_text("عذراً، هذا البوت مخصص لموظفي الشركة فقط.")
+            return ConversationHandler.END
+        
+        # الحصول على نص الرسالة المعاد توجيهها
+        text = update.message.text.strip()
+        
+        if not text:
+            await update.message.reply_text(
+                "❌ الرسالة المعاد توجيهها فارغة!\n\n"
+                "الرجاء إعادة توجيه رسالة تحتوي على بيانات الفاتورة بالشكل التالي:\n\n"
+                "اسم الموظفة /نور\n"
+                "أسم العميل/ محمد\n"
+                "المحافظة/ الانبار\n"
+                "اقرب نقطة دالة / الرمادي\n"
+                "الرقم/ 0782444\n"
+                "العدد/ 1\n"
+                "السعر / 40000\n"
+                "الملاحظات/ لاشيئ"
+            )
+            return MAIN_MENU
+        
+        # إرسال رسالة تأكيد
+        await update.message.reply_text(
+            "🔄 جاري معالجة الرسالة المعاد توجيهها...\n\n"
+            "📋 البيانات المستلمة:\n" + text[:500] + ("..." if len(text) > 500 else "")
+        )
+        
+        # معالجة البيانات كفاتورة جديدة
+        return await process_invoice_data(update, context, text)
+        
+    except Exception as e:
+        await update.message.reply_text(
+            f"❌ خطأ في معالجة الرسالة المعاد توجيهها: {str(e)}\n\n"
+            "الرجاء التأكد من تنسيق البيانات وإعادة المحاولة."
+        )
+        return MAIN_MENU
+
+async def process_invoice_data(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+    """معالجة بيانات الفاتورة (مشتركة بين الإدخال اليدوي والمعاد توجيهه)"""
+    try:
+        # تقسيم النص حسب السطر الجديد أولاً
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
+        
+        # إذا كان التنسيق على سطر واحد، نقسم حسب /
+        if len(lines) == 1:
+            parts = [part.strip() for part in text.split('/')]
+            if len(parts) < 8:
+                keyboard = [
+                    [InlineKeyboardButton("🔙 تجاهل والعودة للقائمة الرئيسية", callback_data="back_to_main_menu")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(
+                    "❌ خطأ في تنسيق البيانات!\n\n"
+                    "الرجاء إدخال جميع البيانات بالترتيب:\n"
+                    "اسم الموظفة /نور\n"
+                    "أسم العميل/ محمد\n"
+                    "المحافظة/ الانبار\n"
+                    "اقرب نقطة دالة / الرمادي\n"
+                    "الرقم/ 0782444\n"
+                    "العدد/ 1\n"
+                    "السعر / 40000\n"
+                    "الملاحظات/ لاشيئ\n\n"
+                    "💡 يمكنك تجاهل هذا الخطأ والعودة للقائمة الرئيسية",
+                    reply_markup=reply_markup
+                )
+                return MAIN_MENU
+            
+            # استخراج البيانات من التنسيق القديم
+            employee_name = parts[0]
+            client_name = parts[1]
+            governorate = parts[2]
+            nearest_point = parts[3]
+            phone_number = parts[4]
+            quantity = parts[5]
+            price = parts[6]
+            notes = parts[7] if len(parts) > 7 else ""
+        else:
+            # التنسيق الجديد - كل حقل في سطر منفصل
+            if len(lines) < 8:
+                keyboard = [
+                    [InlineKeyboardButton("🔙 تجاهل والعودة للقائمة الرئيسية", callback_data="back_to_main_menu")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(
+                    "❌ خطأ في تنسيق البيانات!\n\n"
+                    "الرجاء إدخال جميع البيانات بالترتيب:\n"
+                    "اسم الموظفة /نور\n"
+                    "أسم العميل/ محمد\n"
+                    "المحافظة/ الانبار\n"
+                    "اقرب نقطة دالة / الرمادي\n"
+                    "الرقم/ 0782444\n"
+                    "العدد/ 1\n"
+                    "السعر / 40000\n"
+                    "الملاحظات/ لاشيئ\n\n"
+                    "💡 يمكنك تجاهل هذا الخطأ والعودة للقائمة الرئيسية",
+                    reply_markup=reply_markup
+                )
+                return MAIN_MENU
+            
+            # استخراج البيانات من التنسيق الجديد
+            try:
+                employee_name = lines[0].split('/')[1].strip() if '/' in lines[0] else lines[0]
+                client_name = lines[1].split('/')[1].strip() if '/' in lines[1] else lines[1]
+                governorate = lines[2].split('/')[1].strip() if '/' in lines[2] else lines[2]
+                nearest_point = lines[3].split('/')[1].strip() if '/' in lines[3] else lines[3]
+                phone_number = lines[4].split('/')[1].strip() if '/' in lines[4] else lines[4]
+                quantity = lines[5].split('/')[1].strip() if '/' in lines[5] else lines[5]
+                price = lines[6].split('/')[1].strip() if '/' in lines[6] else lines[6]
+                notes = lines[7].split('/')[1].strip() if '/' in lines[7] else lines[7]
+            except IndexError:
+                keyboard = [
+                    [InlineKeyboardButton("🔙 تجاهل والعودة للقائمة الرئيسية", callback_data="back_to_main_menu")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(
+                    "❌ خطأ في تنسيق البيانات!\n\n"
+                    "الرجاء التأكد من تنسيق البيانات:\n"
+                    "اسم الموظفة /نور\n"
+                    "أسم العميل/ محمد\n"
+                    "المحافظة/ الانبار\n"
+                    "اقرب نقطة دالة / الرمادي\n"
+                    "الرقم/ 0782444\n"
+                    "العدد/ 1\n"
+                    "السعر / 40000\n"
+                    "الملاحظات/ لاشيئ\n\n"
+                    "💡 يمكنك تجاهل هذا الخطأ والعودة للقائمة الرئيسية",
+                    reply_markup=reply_markup
+                )
+                return MAIN_MENU
+        
+        # تنظيف البيانات من المسافات الزائدة
+        employee_name = employee_name.strip()
+        client_name = client_name.strip()
+        governorate = governorate.strip()
+        nearest_point = nearest_point.strip()
+        phone_number = phone_number.strip()
+        quantity = quantity.strip()
+        price = price.strip()
+        notes = notes.strip()
+        
+        # التحقق من صحة البيانات
+        try:
+            # إزالة المسافات من العدد
+            quantity_clean = quantity.replace(' ', '')
+            quantity = int(quantity_clean)
+            if quantity <= 0:
+                raise ValueError("العدد يجب أن يكون أكبر من صفر")
+        except ValueError:
+            keyboard = [
+                [InlineKeyboardButton("🔙 تجاهل والعودة للقائمة الرئيسية", callback_data="back_to_main_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "❌ خطأ: العدد يجب أن يكون رقماً صحيحاً أكبر من صفر\n\n"
+                "💡 يمكنك تجاهل هذا الخطأ والعودة للقائمة الرئيسية",
+                reply_markup=reply_markup
+            )
+            return MAIN_MENU
+        
+        try:
+            # فلترة السعر - إزالة جميع العلامات والرموز والمسافات (عربية وإنجليزية)
+            import re
+            
+            # قائمة العلامات العربية والإنجليزية التي يجب إزالتها
+            arabic_english_chars = {
+                # علامات الترقيم العربية
+                '،': '',  # فاصلة عربية
+                '؛': '',  # فاصلة منقوطة عربية
+                '؟': '',  # علامة استفهام عربية
+                '!': '',  # علامة تعجب
+                'ـ': '',  # كسرة عربية
+                '،': '',  # فاصلة عربية
+                '؛': '',  # فاصلة منقوطة عربية
+                '؟': '',  # علامة استفهام عربية
+                '!': '',  # علامة تعجب
+                'ـ': '',  # كسرة عربية
+                
+                # علامات الترقيم الإنجليزية
+                ',': '',  # فاصلة إنجليزية
+                ';': '',  # فاصلة منقوطة إنجليزية
+                '?': '',  # علامة استفهام إنجليزية
+                '!': '',  # علامة تعجب إنجليزية
+                '-': '',  # شرطة
+                '_': '',  # شرطة سفلية
+                '+': '',  # علامة زائد
+                '=': '',  # علامة يساوي
+                '*': '',  # علامة ضرب
+                '/': '',  # علامة قسمة
+                '\\': '',  # شرطة مائلة
+                '|': '',  # خط عمودي
+                '`': '',  # علامة اقتباس
+                '~': '',  # علامة تيلدا
+                '@': '',  # علامة @
+                '#': '',  # علامة #
+                '$': '',  # علامة $
+                '%': '',  # علامة %
+                '^': '',  # علامة ^
+                '&': '',  # علامة &
+                '(': '',  # قوس مفتوح
+                ')': '',  # قوس مغلق
+                '[': '',  # قوس مربع مفتوح
+                ']': '',  # قوس مربع مغلق
+                '{': '',  # قوس مجعد مفتوح
+                '}': '',  # قوس مجعد مغلق
+                '<': '',  # علامة أصغر من
+                '>': '',  # علامة أكبر من
+                '"': '',  # علامة اقتباس مزدوجة
+                "'": '',  # علامة اقتباس مفردة
+                ' ': '',  # مسافة
+                '\t': '',  # تبويب
+                '\n': '',  # سطر جديد
+                '\r': '',  # عودة السطر
+            }
+            
+            # تطبيق الاستبدالات
+            price_clean = price
+            for char, replacement in arabic_english_chars.items():
+                price_clean = price_clean.replace(char, replacement)
+            
+            # تحويل الأرقام العربية إلى أرقام إنجليزية
+            arabic_to_english = {
+                '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
+                '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9'
+            }
+            for arabic, english in arabic_to_english.items():
+                price_clean = price_clean.replace(arabic, english)
+            
+            # إزالة جميع الأحرف غير الرقمية والنقطة العشرية (للأمان)
+            price_clean = re.sub(r'[^\d.]', '', price_clean)
+            
+            # إزالة النقاط العشرية المتعددة (الاحتفاظ بالأولى فقط)
+            if price_clean.count('.') > 1:
+                parts = price_clean.split('.')
+                price_clean = parts[0] + '.' + ''.join(parts[1:])
+            
+            # التحقق من أن النص يحتوي على أرقام
+            if not price_clean or price_clean == '.':
+                raise ValueError("السعر يجب أن يحتوي على أرقام")
+            
+            price = float(price_clean)
+            if price <= 0:
+                raise ValueError("السعر يجب أن يكون أكبر من صفر")
+                
+        except ValueError as e:
+            keyboard = [
+                [InlineKeyboardButton("🔙 تجاهل والعودة للقائمة الرئيسية", callback_data="back_to_main_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                f"❌ خطأ في السعر: {str(e)}\n\n"
+                f"السعر المدخل: '{price}'\n"
+                f"الرجاء التأكد من أن السعر يحتوي على أرقام فقط\n\n"
+                f"💡 يمكنك تجاهل هذا الخطأ والعودة للقائمة الرئيسية",
+                reply_markup=reply_markup
+            )
+            return MAIN_MENU
+        
+        # التحقق من رقم الهاتف
+        if not phone_number.replace(' ', '').isdigit() or len(phone_number.replace(' ', '')) < 10:
+            keyboard = [
+                [InlineKeyboardButton("🔙 تجاهل والعودة للقائمة الرئيسية", callback_data="back_to_main_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "❌ خطأ: رقم الهاتف غير صحيح\n\n"
+                "💡 يمكنك تجاهل هذا الخطأ والعودة للقائمة الرئيسية",
+                reply_markup=reply_markup
+            )
+            return MAIN_MENU
+        
+        # إنشاء رقم الإيصال
+        receipt_number = f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        total_sales = price  # السعر كما هو بدون ضرب بالعدد
+        
+        # إعداد بيانات الفاتورة
+        invoice_data = {
+            'receipt_number': receipt_number,
+            'employee_name': employee_name,
+            'client_name': client_name,
+            'client_phone': phone_number,
+            'governorate': governorate,
+            'nearest_point': nearest_point,
+            'quantity': quantity,
+            'price': price,
+            'total_sales': total_sales,
+            'notes': notes
+        }
+        
+        # حفظ الفاتورة في قاعدة البيانات
+        db_result = db_manager.add_invoice(invoice_data)
+        if db_result.get('success'):
+            invoice_id = db_result.get('invoice_id')
+            
+            # إرسال الطلب إلى API
+            api_result = api_manager.send_order_to_api(invoice_data)
+            
+            # تسجيل نتيجة API في قاعدة البيانات
+            db_manager.record_api_order(invoice_id, receipt_number, api_result)
+            
+            # إعداد رسالة التأكيد
+            confirmation_text = f"""
+✅ تم إضافة الفاتورة بنجاح!
+
+📋 تفاصيل الفاتورة:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔢 رقم الإيصال: {receipt_number}
+👤 اسم الموظفة: {employee_name}
+👥 أسم العميل: {client_name}
+🏛️ المحافظة: {governorate}
+📍 أقرب نقطة دالة: {nearest_point}
+📞 الرقم: {phone_number}
+📦 العدد: {quantity}
+💰 السعر: {price:,.0f} دينار
+📝 الملاحظات: {notes}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⏰ التاريخ: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+"""
+            
+            # إضافة معلومات API إلى رسالة التأكيد
+            if api_result.get('success'):
+                confirmation_text += f"""
+🌐 حالة API:
+✅ تم إرسال الطلب إلى النظام الخارجي بنجاح
+🆔 معرف الطلب: {api_result.get('api_order_id', 'غير محدد')}
+📋 مجموعة الطلب: {api_result.get('api_order_group_id', 'غير محدد')}
+"""
+            elif api_result.get('is_duplicate'):
+                # حالة التكرار - حذف الفاتورة من قاعدة البيانات المحلية
+                db_manager.delete_invoice_by_receipt(receipt_number)
+                confirmation_text = f"""
+❌ تم إلغاء إضافة الفاتورة!
+
+📋 تفاصيل الفاتورة الملغية:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔢 رقم الإيصال: {receipt_number}
+👤 اسم الموظفة: {employee_name}
+👥 أسم العميل: {client_name}
+🏛️ المحافظة: {governorate}
+📍 أقرب نقطة دالة: {nearest_point}
+📞 الرقم: {phone_number}
+📦 العدد: {quantity}
+💰 السعر: {price:,.0f} دينار
+📝 الملاحظات: {notes}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⏰ التاريخ: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+🌐 سبب الإلغاء:
+⚠️ {api_result.get('message', 'تكرار في الطلب')}
+💡 تم العثور على طلب مشابه في آخر 24 ساعة
+"""
+            else:
+                confirmation_text += f"""
+🌐 حالة API:
+❌ فشل في إرسال الطلب إلى النظام الخارجي
+⚠️ السبب: {api_result.get('message', 'خطأ غير معروف')}
+💡 سيتم إعادة المحاولة تلقائياً
+"""
+            
+            # إعادة عرض القائمة المناسبة
+            user_id = update.message.from_user.id
+            if user_id in [config.WAREHOUSE_MANAGER_ID, config.WAREHOUSE_MANAGER_ID_2, config.WAREHOUSE_MANAGER_ID_3]:
+                keyboard = [
+                    ["📝 إضافة فاتورة", "📊 إحصائياتي", "📋 تحميل ملف الطلبات"],
+                    ["👥 إحصائيات الموظفين", "🌐 حالة API", "⚙️ إعدادات النظام"],
+                    ["🔙 العودة للقائمة الرئيسية"]
+                ]
+                await update.message.reply_text(
+                    confirmation_text,
+                    reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+                )
+                return ADMIN_MENU
+            else:
+                keyboard = [
+                    ["📝 إضافة فاتورة", "📊 إحصائياتي", "🔙 العودة للقائمة الرئيسية"]
+                ]
+                await update.message.reply_text(
+                    confirmation_text,
+                    reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+                )
+                return MAIN_MENU
+        else:
+            keyboard = [
+                [InlineKeyboardButton("🔙 تجاهل والعودة للقائمة الرئيسية", callback_data="back_to_main_menu")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "❌ خطأ في حفظ الفاتورة. الرجاء المحاولة مرة أخرى.\n\n"
+                "💡 يمكنك تجاهل هذا الخطأ والعودة للقائمة الرئيسية",
+                reply_markup=reply_markup
+            )
+            return MAIN_MENU
+            
+    except Exception as e:
+        await update.message.reply_text(
+            f"❌ خطأ في معالجة البيانات: {e}\nالرجاء المحاولة مرة أخرى."
+        )
         return MAIN_MENU
 
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -235,23 +709,25 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """عرض قائمة مدير المخزن"""
-    keyboard = [
-        ["🔙 العودة للقائمة الرئيسية", "📝 إضافة فاتورة", "📊 الإحصائيات"],
-        ["📋 تحميل ملف الطلبات", "🔄 إدارة المرتجعات", "👤 إدارة المستخدمين"],
-        ["🔐 إدارة كلمات المرور", "⚙️ إعدادات النظام"]
-    ]
-    
     if update.callback_query:
         # عند استخدام callback_query، نرسل رسالة جديدة بدلاً من تعديل الرسالة
         await update.callback_query.answer()
         await update.callback_query.message.reply_text(
             "اختر الخدمة التالية:",
-            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+            reply_markup=ReplyKeyboardMarkup([
+                ["🔙 العودة للقائمة الرئيسية", "📝 إضافة فاتورة", "📊 الإحصائيات"],
+                ["📋 تحميل ملف الطلبات", "🔄 إدارة المرتجعات", "👤 إدارة المستخدمين"],
+                ["🔐 إدارة كلمات المرور", "⚙️ إعدادات النظام"]
+            ], one_time_keyboard=True, resize_keyboard=True)
         )
     else:
         await update.message.reply_text(
             "اختر الخدمة التالية:",
-            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+            reply_markup=ReplyKeyboardMarkup([
+                ["🔙 العودة للقائمة الرئيسية", "📝 إضافة فاتورة", "📊 الإحصائيات"],
+                ["📋 تحميل ملف الطلبات", "🔄 إدارة المرتجعات", "👤 إدارة المستخدمين"],
+                ["🔐 إدارة كلمات المرور", "⚙️ إعدادات النظام"]
+            ], one_time_keyboard=True, resize_keyboard=True)
         )
     return ADMIN_MENU
 
@@ -562,6 +1038,8 @@ async def input_screens_callback_handler(update: Update, context: ContextTypes.D
         return await show_admin_menu(update, context)
     elif query.data == "back_to_main_menu":
         return await start(update, context)
+    elif query.data == "retry_failed_orders":
+        return await retry_failed_api_orders(update, context)
 
 async def show_shipping_period_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """عرض قائمة اختيار فترة تحميل الطلبات"""
@@ -668,7 +1146,22 @@ async def show_system_settings(update: Update, context: ContextTypes.DEFAULT_TYP
 • عدد المستخدمين: {len(config.ALLOWED_USERS)}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
-    await update.message.reply_text(settings_text)
+    
+    keyboard = [
+        [InlineKeyboardButton("🗑️ حذف الفواتير القديمة", callback_data="delete_old_invoices")],
+        [InlineKeyboardButton("📊 تصفير الإحصائيات", callback_data="reset_statistics")],
+        [InlineKeyboardButton("🔄 إعادة تعيين النظام", callback_data="reset_system")],
+        [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        settings_text + "\nاختر الإعداد المطلوب:\n\n"
+        "🗑️ حذف الفواتير القديمة - حذف الفواتير والإحصائيات مع الاحتفاظ بالمستخدمين\n"
+        "📊 تصفير الإحصائيات - تصفير الإحصائيات فقط\n"
+        "🔄 إعادة تعيين النظام - حذف كل شيء ما عدا المستخدمين",
+        reply_markup=reply_markup
+    )
 
 # معالج إدخال جميع بيانات الفاتورة في رسالة واحدة
 async def add_invoice_single_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -684,229 +1177,9 @@ async def add_invoice_single_handler(update: Update, context: ContextTypes.DEFAU
             else:
                 return await show_main_menu(update, context)
         
-        # تقسيم النص حسب السطر الجديد أولاً
-        lines = [line.strip() for line in text.split('\n') if line.strip()]
+        # استخدام الدالة المشتركة لمعالجة البيانات
+        return await process_invoice_data(update, context, text)
         
-        # إذا كان التنسيق على سطر واحد، نقسم حسب /
-        if len(lines) == 1:
-            parts = [part.strip() for part in text.split('/')]
-            if len(parts) < 8:
-                keyboard = [
-                    [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_main_menu")]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                await update.message.reply_text(
-                    "❌ خطأ في تنسيق البيانات!\n\n"
-                    "الرجاء إدخال جميع البيانات بالترتيب:\n"
-                    "اسم الموظفة /نور\n"
-                    "أسم العميل/ محمد\n"
-                    "المحافظة/ الانبار\n"
-                    "اقرب نقطة دالة / الرمادي\n"
-                    "الرقم/ 0782444\n"
-                    "العدد/ 1\n"
-                    "السعر / 40000\n"
-                    "الملاحظات/ لاشيئ\n\n"
-                    "💡 أو اكتب 'عودة' للرجوع للقائمة الرئيسية",
-                    reply_markup=reply_markup
-                )
-                return ADD_INVOICE_SINGLE
-            
-            # استخراج البيانات من التنسيق القديم
-            employee_name = parts[0]
-            client_name = parts[1]
-            governorate = parts[2]
-            nearest_point = parts[3]
-            phone_number = parts[4]
-            quantity = parts[5]
-            price = parts[6]
-            notes = parts[7] if len(parts) > 7 else ""
-        else:
-            # التنسيق الجديد - كل حقل في سطر منفصل
-            if len(lines) < 8:
-                keyboard = [
-                    [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                await update.message.reply_text(
-                    "❌ خطأ في تنسيق البيانات!\n\n"
-                    "الرجاء إدخال جميع البيانات بالترتيب:\n"
-                    "اسم الموظفة /نور\n"
-                    "أسم العميل/ محمد\n"
-                    "المحافظة/ الانبار\n"
-                    "اقرب نقطة دالة / الرمادي\n"
-                    "الرقم/ 0782444\n"
-                    "العدد/ 1\n"
-                    "السعر / 40000\n"
-                    "الملاحظات/ لاشيئ\n\n"
-                    "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
-                    reply_markup=reply_markup
-                )
-                return ADD_INVOICE_SINGLE
-            
-            # استخراج البيانات من التنسيق الجديد
-            try:
-                employee_name = lines[0].split('/')[1].strip() if '/' in lines[0] else lines[0]
-                client_name = lines[1].split('/')[1].strip() if '/' in lines[1] else lines[1]
-                governorate = lines[2].split('/')[1].strip() if '/' in lines[2] else lines[2]
-                nearest_point = lines[3].split('/')[1].strip() if '/' in lines[3] else lines[3]
-                phone_number = lines[4].split('/')[1].strip() if '/' in lines[4] else lines[4]
-                quantity = lines[5].split('/')[1].strip() if '/' in lines[5] else lines[5]
-                price = lines[6].split('/')[1].strip() if '/' in lines[6] else lines[6]
-                notes = lines[7].split('/')[1].strip() if '/' in lines[7] else lines[7]
-            except IndexError:
-                keyboard = [
-                    [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
-                ]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                await update.message.reply_text(
-                    "❌ خطأ في تنسيق البيانات!\n\n"
-                    "الرجاء التأكد من تنسيق البيانات:\n"
-                    "اسم الموظفة /نور\n"
-                    "أسم العميل/ محمد\n"
-                    "المحافظة/ الانبار\n"
-                    "اقرب نقطة دالة / الرمادي\n"
-                    "الرقم/ 0782444\n"
-                    "العدد/ 1\n"
-                    "السعر / 40000\n"
-                    "الملاحظات/ لاشيئ\n\n"
-                    "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
-                    reply_markup=reply_markup
-                )
-                return ADD_INVOICE_SINGLE
-        
-        # تنظيف البيانات من المسافات الزائدة
-        employee_name = employee_name.strip()
-        client_name = client_name.strip()
-        governorate = governorate.strip()
-        nearest_point = nearest_point.strip()
-        phone_number = phone_number.strip()
-        quantity = quantity.strip()
-        price = price.strip()
-        notes = notes.strip()
-        
-        # التحقق من صحة البيانات
-        try:
-            # إزالة المسافات من العدد
-            quantity_clean = quantity.replace(' ', '')
-            quantity = int(quantity_clean)
-            if quantity <= 0:
-                raise ValueError("العدد يجب أن يكون أكبر من صفر")
-        except ValueError:
-            keyboard = [
-                [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(
-                "❌ خطأ: العدد يجب أن يكون رقماً صحيحاً أكبر من صفر\n\n"
-                "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
-                reply_markup=reply_markup
-            )
-            return ADD_INVOICE_SINGLE
-        
-        try:
-            # إزالة المسافات والفواصل من السعر
-            price_clean = price.replace(' ', '').replace(',', '')
-            price = float(price_clean)
-            if price <= 0:
-                raise ValueError("السعر يجب أن يكون أكبر من صفر")
-        except ValueError:
-            keyboard = [
-                [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(
-                "❌ خطأ: السعر يجب أن يكون رقماً أكبر من صفر\n\n"
-                "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
-                reply_markup=reply_markup
-            )
-            return ADD_INVOICE_SINGLE
-        
-        # التحقق من رقم الهاتف
-        if not phone_number.replace(' ', '').isdigit() or len(phone_number.replace(' ', '')) < 10:
-            keyboard = [
-                [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(
-                "❌ خطأ: رقم الهاتف غير صحيح\n\n"
-                "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
-                reply_markup=reply_markup
-            )
-            return ADD_INVOICE_SINGLE
-        
-        # إنشاء رقم الإيصال
-        receipt_number = f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-        total_sales = price  # السعر كما هو بدون ضرب بالعدد
-        
-        # إعداد بيانات الفاتورة
-        invoice_data = {
-            'receipt_number': receipt_number,
-            'employee_name': employee_name,
-            'client_name': client_name,
-            'client_phone': phone_number,
-            'governorate': governorate,
-            'nearest_point': nearest_point,
-            'quantity': quantity,
-            'price': price,
-            'total_sales': total_sales,
-            'notes': notes
-        }
-        
-        # حفظ الفاتورة في قاعدة البيانات
-        if db_manager.add_invoice(invoice_data):
-            # رسالة التأكيد
-            confirmation_text = f"""
-✅ تم إضافة الفاتورة بنجاح!
-
-📋 تفاصيل الفاتورة:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔢 رقم الإيصال: {receipt_number}
-👤 اسم الموظفة: {employee_name}
-👥 أسم العميل: {client_name}
-🏛️ المحافظة: {governorate}
-📍 أقرب نقطة دالة: {nearest_point}
-📞 الرقم: {phone_number}
-📦 العدد: {quantity}
-💰 السعر: {price:,.0f} دينار
-📝 الملاحظات: {notes}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⏰ التاريخ: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-"""
-            
-            # إعادة عرض القائمة المناسبة
-            user_id = update.message.from_user.id
-            if user_id in [config.WAREHOUSE_MANAGER_ID, config.WAREHOUSE_MANAGER_ID_2, config.WAREHOUSE_MANAGER_ID_3]:
-                keyboard = [
-                    ["📝 إضافة فاتورة", "📊 إحصائياتي", "📋 تحميل ملف الطلبات"],
-                    ["👥 إحصائيات الموظفين", "⚙️ إعدادات النظام", "🔙 العودة للقائمة الرئيسية"]
-                ]
-                await update.message.reply_text(
-                    confirmation_text,
-                    reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-                )
-                return ADMIN_MENU
-            else:
-                keyboard = [
-                    ["📝 إضافة فاتورة", "📊 إحصائياتي", "🔙 العودة للقائمة الرئيسية"]
-                ]
-                await update.message.reply_text(
-                    confirmation_text,
-                    reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-                )
-                return MAIN_MENU
-        else:
-            keyboard = [
-                [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(
-                "❌ خطأ في حفظ الفاتورة. الرجاء المحاولة مرة أخرى.\n\n"
-                "💡 أو اضغط على زر العودة للرجوع للقائمة الرئيسية",
-                reply_markup=reply_markup
-            )
-            return ADD_INVOICE_SINGLE
-            
     except Exception as e:
         keyboard = [
             [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_admin")]
@@ -1781,6 +2054,10 @@ async def user_management_handler(update: Update, context: ContextTypes.DEFAULT_
             db_role = "warehouse_manager" if role == "manager" else "employee"
             db_manager.add_user(user_id, username, full_name, db_role)
             
+            # تحديث قائمة ALLOWED_USERS في الذاكرة
+            if user_id not in config.ALLOWED_USERS:
+                config.ALLOWED_USERS.add(user_id)
+            
             success_text = f"""
 ✅ تم إضافة المستخدم بنجاح!
 
@@ -1807,11 +2084,27 @@ async def user_management_handler(update: Update, context: ContextTypes.DEFAULT_
         return ADD_USER_DATA
         
     except ValueError:
-        await update.message.reply_text("❌ خطأ: معرف المستخدم يجب أن يكون رقماً صحيحاً")
-        return ADD_USER_DATA
+        keyboard = [
+            [InlineKeyboardButton("🔙 تجاهل والعودة للقائمة الرئيسية", callback_data="back_to_main_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "❌ خطأ: معرف المستخدم يجب أن يكون رقماً صحيحاً\n\n"
+            "💡 يمكنك تجاهل هذا الخطأ والعودة للقائمة الرئيسية",
+            reply_markup=reply_markup
+        )
+        return MAIN_MENU
     except Exception as e:
-        await update.message.reply_text(f"❌ خطأ في إضافة المستخدم: {e}")
-        return ADD_USER_DATA
+        keyboard = [
+            [InlineKeyboardButton("🔙 تجاهل والعودة للقائمة الرئيسية", callback_data="back_to_main_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            f"❌ خطأ في إضافة المستخدم: {e}\n\n"
+            "💡 يمكنك تجاهل هذا الخطأ والعودة للقائمة الرئيسية",
+            reply_markup=reply_markup
+        )
+        return MAIN_MENU
 
 async def update_manager_config(user_id):
     """تحديث ملف config.py لتعيين مدير مخزن جديد"""
@@ -1828,6 +2121,9 @@ async def update_manager_config(user_id):
         # كتابة الملف المحدث
         with open('config.py', 'w', encoding='utf-8') as file:
             file.write(new_content)
+        
+        # تحديث WAREHOUSE_MANAGER_ID_2 في الذاكرة
+        config.WAREHOUSE_MANAGER_ID_2 = user_id
         
         # إعادة تحميل config
         import importlib
@@ -1855,6 +2151,10 @@ async def update_config_file(user_id):
         # كتابة المحتوى المحدث
         with open('config.py', 'w', encoding='utf-8') as file:
             file.write(content)
+        
+        # تحديث قائمة ALLOWED_USERS في الذاكرة
+        if user_id not in config.ALLOWED_USERS:
+            config.ALLOWED_USERS.add(user_id)
         
         print(f"✅ تم تحديث ملف config.py بنجاح")
         
@@ -2619,6 +2919,311 @@ async def return_reason_input_handler(update: Update, context: ContextTypes.DEFA
     
     return await show_returns_management_menu(update, context)
 
+async def retry_failed_api_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """إعادة المحاولة للطلبات الفاشلة في API"""
+    try:
+        # إرسال رسالة "جاري المعالجة"
+        await update.callback_query.answer("🔄 جاري إعادة المحاولة...")
+
+        # الحصول على الطلبات الفاشلة
+        failed_orders = db_manager.get_failed_api_orders()
+
+        if not failed_orders:
+            await update.callback_query.message.reply_text(
+                "✅ لا توجد طلبات فاشلة لإعادة المحاولة!"
+            )
+            return await show_admin_menu(update, context)
+
+        # إعادة المحاولة للطلبات الفاشلة
+        success_count = 0
+        failed_count = 0
+        error_details = []
+
+        for order in failed_orders:
+            try:
+                # الحصول على بيانات الفاتورة الكاملة
+                invoice_data = db_manager.get_invoice_by_receipt(order['receipt_number'])
+                if invoice_data:
+                    # إعادة إرسال الطلب إلى API
+                    api_result = api_manager.send_order_to_api(invoice_data)
+
+                    # تحديث عدد المحاولات
+                    db_manager.update_api_order_retry(order['receipt_number'])
+
+                    if api_result.get('success'):
+                        success_count += 1
+                        # تسجيل النجاح
+                        db_manager.record_api_order(
+                            invoice_data.get('id'),
+                            order['receipt_number'],
+                            api_result
+                        )
+                    else:
+                        failed_count += 1
+                        error_details.append(f"• {order['receipt_number']}: {api_result.get('message', 'خطأ غير معروف')}")
+                else:
+                    failed_count += 1
+                    error_details.append(f"• {order['receipt_number']}: لم يتم العثور على بيانات الفاتورة")
+            except Exception as e:
+                failed_count += 1
+                error_details.append(f"• {order['receipt_number']}: {str(e)}")
+
+        # رسالة النتيجة
+        result_text = f"""
+🔄 إعادة المحاولة للطلبات الفاشلة
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 النتائج:
+✅ نجح: {success_count} طلب
+❌ فشل: {failed_count} طلب
+📋 إجمالي: {len(failed_orders)} طلب
+"""
+
+        if success_count > 0:
+            result_text += "\n🎉 تم إعادة إرسال بعض الطلبات بنجاح!"
+
+        if failed_count > 0:
+            result_text += f"\n⚠️ {failed_count} طلب لا يزال فاشلاً"
+            if error_details:
+                result_text += "\n\n📋 تفاصيل الأخطاء:\n" + "\n".join(error_details[:5])  # عرض أول 5 أخطاء فقط
+                if len(error_details) > 5:
+                    result_text += f"\n... و {len(error_details) - 5} خطأ آخر"
+
+        await update.callback_query.message.reply_text(result_text)
+        return await show_admin_menu(update, context)
+
+    except Exception as e:
+        await update.callback_query.message.reply_text(
+            f"❌ خطأ في إعادة المحاولة: {str(e)}"
+        )
+        return await show_admin_menu(update, context)
+
+async def system_settings_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالج أزرار إعدادات النظام"""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "delete_old_invoices":
+        return await delete_old_invoices_handler(update, context)
+    elif query.data == "reset_statistics":
+        return await reset_statistics_handler(update, context)
+    elif query.data == "reset_system":
+        return await reset_system_handler(update, context)
+    elif query.data == "back_to_admin":
+        # إرسال رسالة جديدة مع القائمة الرئيسية
+        await update.callback_query.message.reply_text(
+            "اختر الخدمة التالية:",
+            reply_markup=ReplyKeyboardMarkup([
+                ["🔙 العودة للقائمة الرئيسية", "📝 إضافة فاتورة", "📊 الإحصائيات"],
+                ["📋 تحميل ملف الطلبات", "🔄 إدارة المرتجعات", "👤 إدارة المستخدمين"],
+                ["🔐 إدارة كلمات المرور", "⚙️ إعدادات النظام"]
+            ], one_time_keyboard=True, resize_keyboard=True)
+        )
+        return ADMIN_MENU
+
+async def delete_old_invoices_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالج حذف الفواتير القديمة"""
+    try:
+        # الحصول على إحصائيات النظام قبل الحذف
+        stats_before = db_manager.get_system_stats()
+        
+        # إرسال رسالة تأكيد
+        await update.callback_query.answer("🗑️ جاري حذف الفواتير القديمة...")
+        
+        # حذف الفواتير والإحصائيات
+        result = db_manager.delete_old_invoices()
+        
+        if result.get('success'):
+            # الحصول على إحصائيات النظام بعد الحذف
+            stats_after = db_manager.get_system_stats()
+            
+            result_text = f"""
+🗑️ تم حذف الفواتير القديمة بنجاح!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 ما تم حذفه:
+• الفواتير: {result['invoices_deleted']} فاتورة
+• سجلات API: {result['api_orders_deleted']} سجل
+• المرتجعات: {result['returns_deleted']} مرتجع
+• الإحصائيات اليومية: {result['stats_deleted']} سجل
+• إحصائيات الشحن: {result['shipping_stats_deleted']} سجل
+
+✅ تم الاحتفاظ بـ:
+• المستخدمين: {stats_after['users_count']} مستخدم
+• كلمات المرور: {stats_after['passwords_count']} كلمة مرور
+
+📈 حالة النظام الحالية:
+• الفواتير: {stats_after['invoices_count']} فاتورة
+• المرتجعات: {stats_after['returns_count']} مرتجع
+• سجلات API: {stats_after['api_orders_count']} سجل
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+        else:
+            result_text = f"""
+❌ فشل في حذف الفواتير القديمة!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ السبب: {result.get('error', 'خطأ غير معروف')}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+        
+        await update.callback_query.message.reply_text(result_text)
+        # إرسال رسالة جديدة مع القائمة الرئيسية
+        await update.callback_query.message.reply_text(
+            "اختر الخدمة التالية:",
+            reply_markup=ReplyKeyboardMarkup([
+                ["🔙 العودة للقائمة الرئيسية", "📝 إضافة فاتورة", "📊 الإحصائيات"],
+                ["📋 تحميل ملف الطلبات", "🔄 إدارة المرتجعات", "👤 إدارة المستخدمين"],
+                ["🔐 إدارة كلمات المرور", "⚙️ إعدادات النظام"]
+            ], one_time_keyboard=True, resize_keyboard=True)
+        )
+        return ADMIN_MENU
+        
+    except Exception as e:
+        await update.callback_query.message.reply_text(
+            f"❌ خطأ في حذف الفواتير القديمة: {str(e)}"
+        )
+        # إرسال رسالة جديدة مع القائمة الرئيسية
+        await update.callback_query.message.reply_text(
+            "اختر الخدمة التالية:",
+            reply_markup=ReplyKeyboardMarkup([
+                ["🔙 العودة للقائمة الرئيسية", "📝 إضافة فاتورة", "📊 الإحصائيات"],
+                ["📋 تحميل ملف الطلبات", "🔄 إدارة المرتجعات", "👤 إدارة المستخدمين"],
+                ["🔐 إدارة كلمات المرور", "⚙️ إعدادات النظام"]
+            ], one_time_keyboard=True, resize_keyboard=True)
+        )
+        return ADMIN_MENU
+
+async def reset_statistics_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالج تصفير الإحصائيات"""
+    try:
+        # إرسال رسالة تأكيد
+        await update.callback_query.answer("📊 جاري تصفير الإحصائيات...")
+        
+        # تصفير الإحصائيات
+        result = db_manager.reset_statistics_only()
+        
+        if result.get('success'):
+            result_text = f"""
+📊 تم تصفير الإحصائيات بنجاح!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📈 ما تم تصفيره:
+• الإحصائيات اليومية: {result['stats_deleted']} سجل
+• إحصائيات الشحن: {result['shipping_stats_deleted']} سجل
+
+✅ تم الاحتفاظ بـ:
+• جميع الفواتير
+• جميع المرتجعات
+• جميع سجلات API
+• جميع المستخدمين
+• جميع كلمات المرور
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+        else:
+            result_text = f"""
+❌ فشل في تصفير الإحصائيات!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ السبب: {result.get('error', 'خطأ غير معروف')}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+        
+        await update.callback_query.message.reply_text(result_text)
+        # إرسال رسالة جديدة مع القائمة الرئيسية
+        await update.callback_query.message.reply_text(
+            "اختر الخدمة التالية:",
+            reply_markup=ReplyKeyboardMarkup([
+                ["🔙 العودة للقائمة الرئيسية", "📝 إضافة فاتورة", "📊 الإحصائيات"],
+                ["📋 تحميل ملف الطلبات", "🔄 إدارة المرتجعات", "👤 إدارة المستخدمين"],
+                ["🔐 إدارة كلمات المرور", "⚙️ إعدادات النظام"]
+            ], one_time_keyboard=True, resize_keyboard=True)
+        )
+        return ADMIN_MENU
+        
+    except Exception as e:
+        await update.callback_query.message.reply_text(
+            f"❌ خطأ في تصفير الإحصائيات: {str(e)}"
+        )
+        # إرسال رسالة جديدة مع القائمة الرئيسية
+        await update.callback_query.message.reply_text(
+            "اختر الخدمة التالية:",
+            reply_markup=ReplyKeyboardMarkup([
+                ["🔙 العودة للقائمة الرئيسية", "📝 إضافة فاتورة", "📊 الإحصائيات"],
+                ["📋 تحميل ملف الطلبات", "🔄 إدارة المرتجعات", "👤 إدارة المستخدمين"],
+                ["🔐 إدارة كلمات المرور", "⚙️ إعدادات النظام"]
+            ], one_time_keyboard=True, resize_keyboard=True)
+        )
+        return ADMIN_MENU
+
+async def reset_system_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالج إعادة تعيين النظام"""
+    try:
+        # الحصول على إحصائيات النظام قبل الحذف
+        stats_before = db_manager.get_system_stats()
+        
+        # إرسال رسالة تأكيد
+        await update.callback_query.answer("🔄 جاري إعادة تعيين النظام...")
+        
+        # إعادة تعيين النظام
+        result = db_manager.reset_system_complete()
+        
+        if result.get('success'):
+            # الحصول على إحصائيات النظام بعد الحذف
+            stats_after = db_manager.get_system_stats()
+            
+            result_text = f"""
+🔄 تم إعادة تعيين النظام بنجاح!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🗑️ ما تم حذفه:
+• الفواتير: {result['invoices_deleted']} فاتورة
+• سجلات API: {result['api_orders_deleted']} سجل
+• المرتجعات: {result['returns_deleted']} مرتجع
+• الإحصائيات اليومية: {result['stats_deleted']} سجل
+• إحصائيات الشحن: {result['shipping_stats_deleted']} سجل
+• كلمات المرور: {result['passwords_deleted']} كلمة مرور
+
+✅ تم الاحتفاظ بـ:
+• المستخدمين: {stats_after['users_count']} مستخدم
+
+📈 حالة النظام الحالية:
+• الفواتير: {stats_after['invoices_count']} فاتورة
+• المرتجعات: {stats_after['returns_count']} مرتجع
+• سجلات API: {stats_after['api_orders_count']} سجل
+• كلمات المرور: {stats_after['passwords_count']} كلمة مرور
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ تحذير: تم حذف جميع البيانات ما عدا المستخدمين!
+"""
+        else:
+            result_text = f"""
+❌ فشل في إعادة تعيين النظام!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ السبب: {result.get('error', 'خطأ غير معروف')}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+        
+        await update.callback_query.message.reply_text(result_text)
+        # إرسال رسالة جديدة مع القائمة الرئيسية
+        await update.callback_query.message.reply_text(
+            "اختر الخدمة التالية:",
+            reply_markup=ReplyKeyboardMarkup([
+                ["🔙 العودة للقائمة الرئيسية", "📝 إضافة فاتورة", "📊 الإحصائيات"],
+                ["📋 تحميل ملف الطلبات", "🔄 إدارة المرتجعات", "👤 إدارة المستخدمين"],
+                ["🔐 إدارة كلمات المرور", "⚙️ إعدادات النظام"]
+            ], one_time_keyboard=True, resize_keyboard=True)
+        )
+        return ADMIN_MENU
+        
+    except Exception as e:
+        await update.callback_query.message.reply_text(
+            f"❌ خطأ في إعادة تعيين النظام: {str(e)}"
+        )
+        # إرسال رسالة جديدة مع القائمة الرئيسية
+        await update.callback_query.message.reply_text(
+            "اختر الخدمة التالية:",
+            reply_markup=ReplyKeyboardMarkup([
+                ["🔙 العودة للقائمة الرئيسية", "📝 إضافة فاتورة", "📊 الإحصائيات"],
+                ["📋 تحميل ملف الطلبات", "🔄 إدارة المرتجعات", "👤 إدارة المستخدمين"],
+                ["🔐 إدارة كلمات المرور", "⚙️ إعدادات النظام"]
+            ], one_time_keyboard=True, resize_keyboard=True)
+        )
+        return ADMIN_MENU
+
 def main():
     """الدالة الرئيسية لتشغيل البوت"""
     print("🚀 بدء تشغيل البوت (الإصدار النظيف)...")
@@ -2763,7 +3368,9 @@ def main():
             query = update.callback_query
             await query.answer()
             
-            if query.data == "back_to_returns_menu":
+            if query.data == "retry_failed_orders":
+                return await retry_failed_api_orders(update, context)
+            elif query.data == "back_to_returns_menu":
                 return await show_returns_management_menu(update, context)
             elif query.data == "back_to_admin_menu":
                 return await start(update, context)
@@ -2780,9 +3387,16 @@ def main():
             elif query.data.startswith("shipping_"):
                 # إعادة توجيه لأزرار الشحن
                 return await shipping_callback_handler(update, context)
+            elif query.data in ["delete_old_invoices", "reset_statistics", "reset_system", "back_to_admin"]:
+                # إعادة توجيه لأزرار إعدادات النظام
+                return await system_settings_callback_handler(update, context)
             else:
                 await query.answer("⚠️ هذا الزر غير متاح حالياً")
         
+        # إضافة معالج إعدادات النظام
+        app.add_handler(CallbackQueryHandler(system_settings_callback_handler))
+        
+        # إضافة معالج عام للأزرار التفاعلية (يجب أن يكون آخراً)
         app.add_handler(CallbackQueryHandler(general_callback_handler))
         
         print("✅ البوت جاهز للعمل! (الإصدار النظيف)")
@@ -2819,4 +3433,4 @@ def main():
         print("💡 يرجى التحقق من إعدادات البوت والتوكن")
 
 if __name__ == "__main__":
-    main() 
+    main()

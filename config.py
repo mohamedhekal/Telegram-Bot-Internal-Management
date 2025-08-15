@@ -2,8 +2,8 @@ import os
 # Removed dotenv loading since token is hardcoded
 
 # Telegram Bot Token
-# TELEGRAM_TOKEN = "8200047179:AAGIO3WIZT4GcxEMEcI1PoXOtrNkHDAmMYw"
-TELEGRAM_TOKEN = "8421954162:AAEpPfhw61cCy60Ql_deD-ToEBJvbZ3r7_o"
+TELEGRAM_TOKEN = "8200047179:AAEy-8qPtxFy4TmznGE6BywR5pEpI_g644o"
+# TELEGRAM_TOKEN = "8421954162:AAEpPfhw61cCy60Ql_deD-ToEBJvbZ3r7_o"
 # Database Settings
 DATABASE_PATH = "invoice_bot.db"
 
@@ -18,6 +18,13 @@ SHIPPING_TEMPLATE_FILE = "rocklis.xls"
 
 # Allowed Users (Telegram User IDs)
 ALLOWED_USERS = {788101322, 6842382908, 1801438595, 5808690567, 1849001861, 5368965836, 1871428204, 844380852, 1334676785}  # يمكن إضافة المزيد من الموظفين هنا
+
+# API Settings
+API_ENABLED = True  # تفعيل/إلغاء تفعيل إرسال الطلبات إلى API
+API_BASE_URL = "https://rocklis.com/api/v1/admin/order/create"
+API_USERNAME = "admin"  # اسم المستخدم للـ API
+API_PASSWORD = "admin123"  # كلمة المرور للـ API
+API_TIMEOUT = 30  # مهلة الاتصال بالثواني
 
 # Bot States
 MAIN_MENU = 0

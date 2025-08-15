@@ -112,6 +112,23 @@ class DatabaseManager:
             )
         ''')
         
+        # جدول تتبع الطلبات المرسلة إلى API
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS api_orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                invoice_id INTEGER,
+                receipt_number TEXT,
+                api_order_id INTEGER,
+                api_order_group_id TEXT,
+                api_status TEXT,
+                api_message TEXT,
+                sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                retry_count INTEGER DEFAULT 0,
+                last_retry TIMESTAMP,
+                FOREIGN KEY (invoice_id) REFERENCES invoices (id)
+            )
+        ''')
+        
         conn.commit()
         conn.close()
     
@@ -142,12 +159,17 @@ class DatabaseManager:
             # تحديث الإحصائيات اليومية
             self.update_daily_stats(invoice_data['employee_name'])
             
+            # الحصول على معرف الفاتورة المضافة
+            invoice_id = cursor.lastrowid
+            
             conn.commit()
             conn.close()
-            return True
+            
+            # إرجاع معرف الفاتورة مع النتيجة
+            return {"success": True, "invoice_id": invoice_id}
         except Exception as e:
             print(f"خطأ في إضافة الفاتورة: {e}")
-            return False
+            return {"success": False, "error": str(e)}
     
     def update_daily_stats(self, employee_name):
         """تحديث الإحصائيات اليومية"""
@@ -1121,4 +1143,383 @@ class DatabaseManager:
             return all_stats
         except Exception as e:
             print(f"خطأ في الحصول على إحصائيات جميع الموظفين: {e}")
-            return [] 
+            return []
+    
+    # ==================== دوال إدارة API ====================
+    
+    def record_api_order(self, invoice_id, receipt_number, api_result):
+        """
+        تسجيل نتيجة إرسال الطلب إلى API
+        
+        Args:
+            invoice_id: معرف الفاتورة
+            receipt_number: رقم الإيصال
+            api_result: نتيجة الإرسال من API
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO api_orders (
+                    invoice_id, receipt_number, api_order_id, api_order_group_id,
+                    api_status, api_message, sent_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                invoice_id,
+                receipt_number,
+                api_result.get('api_order_id'),
+                api_result.get('api_order_group_id'),
+                'success' if api_result.get('success') else 'failed',
+                api_result.get('message', ''),
+                datetime.now()
+            ))
+            
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"خطأ في تسجيل نتيجة API: {e}")
+            return False
+    
+    def get_api_order_status(self, receipt_number):
+        """
+        الحصول على حالة الطلب في API
+        
+        Args:
+            receipt_number: رقم الإيصال
+            
+        Returns:
+            Dict: حالة الطلب في API
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT api_order_id, api_order_group_id, api_status, api_message, sent_at
+                FROM api_orders 
+                WHERE receipt_number = ?
+                ORDER BY sent_at DESC
+                LIMIT 1
+            ''', (receipt_number,))
+            
+            result = cursor.fetchone()
+            conn.close()
+            
+            if result:
+                return {
+                    'api_order_id': result[0],
+                    'api_order_group_id': result[1],
+                    'api_status': result[2],
+                    'api_message': result[3],
+                    'sent_at': result[4]
+                }
+            else:
+                return None
+        except Exception as e:
+            print(f"خطأ في الحصول على حالة API: {e}")
+            return None
+    
+    def get_failed_api_orders(self):
+        """
+        الحصول على الطلبات التي فشلت في الإرسال إلى API
+        
+        Returns:
+            List: قائمة الطلبات الفاشلة
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT ao.receipt_number, ao.api_message, ao.sent_at, ao.retry_count,
+                       i.employee_name, i.client_name, i.total_sales
+                FROM api_orders ao
+                JOIN invoices i ON ao.invoice_id = i.id
+                WHERE ao.api_status = 'failed'
+                ORDER BY ao.sent_at DESC
+            ''')
+            
+            results = cursor.fetchall()
+            conn.close()
+            
+            failed_orders = []
+            for result in results:
+                failed_orders.append({
+                    'receipt_number': result[0],
+                    'api_message': result[1],
+                    'sent_at': result[2],
+                    'retry_count': result[3],
+                    'employee_name': result[4],
+                    'client_name': result[5],
+                    'total_sales': result[6]
+                })
+            
+            return failed_orders
+        except Exception as e:
+            print(f"خطأ في الحصول على الطلبات الفاشلة: {e}")
+            return []
+    
+    def update_api_order_retry(self, receipt_number):
+        """
+        تحديث عدد المحاولات للطلب الفاشل
+        
+        Args:
+            receipt_number: رقم الإيصال
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                UPDATE api_orders 
+                SET retry_count = retry_count + 1, last_retry = ?
+                WHERE receipt_number = ?
+            ''', (datetime.now(), receipt_number))
+            
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"خطأ في تحديث محاولات API: {e}")
+            return False
+    
+    def get_invoice_by_receipt(self, receipt_number):
+        """
+        الحصول على بيانات الفاتورة بواسطة رقم الإيصال
+        
+        Args:
+            receipt_number: رقم الإيصال
+            
+        Returns:
+            Dict: بيانات الفاتورة أو None إذا لم توجد
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT id, receipt_number, employee_name, client_name, client_phone,
+                       governorate, nearest_point, quantity, price, total_sales, notes, created_at
+                FROM invoices 
+                WHERE receipt_number = ?
+            ''', (receipt_number,))
+            
+            result = cursor.fetchone()
+            conn.close()
+            
+            if result:
+                return {
+                    'id': result[0],
+                    'receipt_number': result[1],
+                    'employee_name': result[2],
+                    'client_name': result[3],
+                    'client_phone': result[4],
+                    'governorate': result[5],
+                    'nearest_point': result[6],
+                    'quantity': result[7],
+                    'price': result[8],
+                    'total_sales': result[9],
+                    'notes': result[10],
+                    'created_at': result[11]
+                }
+            else:
+                return None
+        except Exception as e:
+            print(f"خطأ في الحصول على الفاتورة: {e}")
+            return None
+
+    def delete_old_invoices(self):
+        """حذف جميع الفواتير والإحصائيات مع الاحتفاظ بالمستخدمين"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            # حذف جميع الفواتير
+            cursor.execute('DELETE FROM invoices')
+            invoices_deleted = cursor.rowcount
+            
+            # حذف جميع سجلات API
+            cursor.execute('DELETE FROM api_orders')
+            api_orders_deleted = cursor.rowcount
+            
+            # حذف جميع المرتجعات
+            cursor.execute('DELETE FROM returns')
+            returns_deleted = cursor.rowcount
+            
+            # تصفير الإحصائيات اليومية
+            cursor.execute('DELETE FROM daily_stats')
+            stats_deleted = cursor.rowcount
+            
+            # تصفير إحصائيات الشحن (إذا كانت موجودة)
+            shipping_stats_deleted = 0
+            try:
+                cursor.execute('DELETE FROM shipping_stats')
+                shipping_stats_deleted = cursor.rowcount
+            except:
+                pass  # الجدول غير موجود
+            
+            conn.commit()
+            conn.close()
+            
+            return {
+                "success": True,
+                "invoices_deleted": invoices_deleted,
+                "api_orders_deleted": api_orders_deleted,
+                "returns_deleted": returns_deleted,
+                "stats_deleted": stats_deleted,
+                "shipping_stats_deleted": shipping_stats_deleted
+            }
+        except Exception as e:
+            print(f"خطأ في حذف الفواتير القديمة: {e}")
+            return {"success": False, "error": str(e)}
+
+    def reset_statistics_only(self):
+        """تصفير الإحصائيات فقط مع الاحتفاظ بالفواتير"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            # تصفير الإحصائيات اليومية
+            cursor.execute('DELETE FROM daily_stats')
+            stats_deleted = cursor.rowcount
+            
+            # تصفير إحصائيات الشحن (إذا كانت موجودة)
+            shipping_stats_deleted = 0
+            try:
+                cursor.execute('DELETE FROM shipping_stats')
+                shipping_stats_deleted = cursor.rowcount
+            except:
+                pass  # الجدول غير موجود
+            
+            conn.commit()
+            conn.close()
+            
+            return {
+                "success": True,
+                "stats_deleted": stats_deleted,
+                "shipping_stats_deleted": shipping_stats_deleted
+            }
+        except Exception as e:
+            print(f"خطأ في تصفير الإحصائيات: {e}")
+            return {"success": False, "error": str(e)}
+
+    def reset_system_complete(self):
+        """إعادة تعيين النظام بالكامل مع الاحتفاظ بالمستخدمين فقط"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            # حذف جميع الفواتير
+            cursor.execute('DELETE FROM invoices')
+            invoices_deleted = cursor.rowcount
+            
+            # حذف جميع سجلات API
+            cursor.execute('DELETE FROM api_orders')
+            api_orders_deleted = cursor.rowcount
+            
+            # حذف جميع المرتجعات
+            cursor.execute('DELETE FROM returns')
+            returns_deleted = cursor.rowcount
+            
+            # تصفير الإحصائيات اليومية
+            cursor.execute('DELETE FROM daily_stats')
+            stats_deleted = cursor.rowcount
+            
+            # تصفير إحصائيات الشحن (إذا كانت موجودة)
+            shipping_stats_deleted = 0
+            try:
+                cursor.execute('DELETE FROM shipping_stats')
+                shipping_stats_deleted = cursor.rowcount
+            except:
+                pass  # الجدول غير موجود
+            
+            # حذف جميع كلمات المرور
+            cursor.execute('DELETE FROM employee_passwords')
+            passwords_deleted = cursor.rowcount
+            
+            # الاحتفاظ بالمستخدمين فقط (جدول users)
+            
+            conn.commit()
+            conn.close()
+            
+            return {
+                "success": True,
+                "invoices_deleted": invoices_deleted,
+                "api_orders_deleted": api_orders_deleted,
+                "returns_deleted": returns_deleted,
+                "stats_deleted": stats_deleted,
+                "shipping_stats_deleted": shipping_stats_deleted,
+                "passwords_deleted": passwords_deleted
+            }
+        except Exception as e:
+            print(f"خطأ في إعادة تعيين النظام: {e}")
+            return {"success": False, "error": str(e)}
+
+    def get_system_stats(self):
+        """الحصول على إحصائيات النظام"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            # عدد الفواتير
+            cursor.execute('SELECT COUNT(*) FROM invoices')
+            invoices_count = cursor.fetchone()[0]
+            
+            # عدد المستخدمين
+            cursor.execute('SELECT COUNT(*) FROM users')
+            users_count = cursor.fetchone()[0]
+            
+            # عدد المرتجعات
+            cursor.execute('SELECT COUNT(*) FROM returns')
+            returns_count = cursor.fetchone()[0]
+            
+            # عدد سجلات API
+            cursor.execute('SELECT COUNT(*) FROM api_orders')
+            api_orders_count = cursor.fetchone()[0]
+            
+            # عدد كلمات المرور
+            cursor.execute('SELECT COUNT(*) FROM employee_passwords')
+            passwords_count = cursor.fetchone()[0]
+            
+            conn.close()
+            
+            return {
+                "invoices_count": invoices_count,
+                "users_count": users_count,
+                "returns_count": returns_count,
+                "api_orders_count": api_orders_count,
+                "passwords_count": passwords_count
+            }
+        except Exception as e:
+            print(f"خطأ في الحصول على إحصائيات النظام: {e}")
+            return None
+
+    def delete_invoice_by_receipt(self, receipt_number: str):
+        """حذف فاتورة بواسطة رقم الإيصال"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            # حذف الفاتورة
+            cursor.execute('DELETE FROM invoices WHERE receipt_number = ?', (receipt_number,))
+            invoices_deleted = cursor.rowcount
+            
+            # حذف سجلات API المرتبطة
+            cursor.execute('DELETE FROM api_orders WHERE receipt_number = ?', (receipt_number,))
+            api_orders_deleted = cursor.rowcount
+            
+            conn.commit()
+            conn.close()
+            
+            print(f"✅ تم حذف الفاتورة {receipt_number}: {invoices_deleted} فاتورة، {api_orders_deleted} سجل API")
+            
+            return {
+                "success": True,
+                "invoices_deleted": invoices_deleted,
+                "api_orders_deleted": api_orders_deleted
+            }
+        except Exception as e:
+            print(f"❌ خطأ في حذف الفاتورة {receipt_number}: {e}")
+            return {"success": False, "error": str(e)} 
