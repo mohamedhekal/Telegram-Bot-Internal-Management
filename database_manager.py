@@ -584,6 +584,29 @@ class DatabaseManager:
             print(f"خطأ في الحصول على قائمة الموظفين: {e}")
             return []
     
+    def get_all_users_for_password_management(self):
+        """الحصول على قائمة جميع المستخدمين لإدارة كلمات المرور (من جدول users فقط)"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            # الحصول على جميع المستخدمين من جدول users
+            cursor.execute('''
+                SELECT full_name FROM users 
+                WHERE role IN ('employee', 'warehouse_manager')
+                ORDER BY full_name
+            ''')
+            
+            results = cursor.fetchall()
+            conn.close()
+            
+            # إرجاع أسماء المستخدمين فقط
+            users = [row[0] for row in results if row[0]]  # التأكد من أن الاسم ليس فارغاً
+            return sorted(users)
+        except Exception as e:
+            print(f"خطأ في الحصول على قائمة المستخدمين لإدارة كلمات المرور: {e}")
+            return []
+    
     def get_employees_with_passwords(self):
         """الحصول على قائمة الموظفين الذين لديهم كلمات مرور"""
         try:
@@ -1483,6 +1506,22 @@ class DatabaseManager:
             cursor.execute('SELECT COUNT(*) FROM employee_passwords')
             passwords_count = cursor.fetchone()[0]
             
+            # عدد الإحصائيات اليومية
+            daily_stats_count = 0
+            try:
+                cursor.execute('SELECT COUNT(*) FROM daily_stats')
+                daily_stats_count = cursor.fetchone()[0]
+            except:
+                pass  # الجدول غير موجود
+            
+            # عدد إحصائيات الشحن
+            shipping_stats_count = 0
+            try:
+                cursor.execute('SELECT COUNT(*) FROM shipping_stats')
+                shipping_stats_count = cursor.fetchone()[0]
+            except:
+                pass  # الجدول غير موجود
+            
             conn.close()
             
             return {
@@ -1490,7 +1529,9 @@ class DatabaseManager:
                 "users_count": users_count,
                 "returns_count": returns_count,
                 "api_orders_count": api_orders_count,
-                "passwords_count": passwords_count
+                "passwords_count": passwords_count,
+                "daily_stats_count": daily_stats_count,
+                "shipping_stats_count": shipping_stats_count
             }
         except Exception as e:
             print(f"خطأ في الحصول على إحصائيات النظام: {e}")

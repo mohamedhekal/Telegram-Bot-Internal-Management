@@ -118,7 +118,7 @@ if __name__ == "__main__":
     try:
         result = asyncio.run(main())
         if result:
-            print("\n🚀 يمكنك الآن تشغيل البوت باستخدام: python bot_clean.py")
+            print("\n🚀 يمكنك الآن تشغيل البوت باستخدام: python start_bot.py")
         else:
             print("\n❌ يرجى حل المشاكل قبل تشغيل البوت")
     except KeyboardInterrupt:

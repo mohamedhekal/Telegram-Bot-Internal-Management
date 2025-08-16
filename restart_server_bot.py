@@ -25,7 +25,7 @@ def restart_pm2_bot():
         
         # إعادة تشغيل البوت
         print("🚀 تشغيل البوت...")
-        os.system("pm2 start bot_clean.py --name rks-order-bot")
+        os.system("pm2 start start_bot.py --name rks-order-bot")
         time.sleep(3)
         
         # التحقق من حالة البوت

@@ -15,8 +15,8 @@ def stop_existing_bot():
     print("🛑 إيقاف البوت الموجود...")
     
     try:
-        # البحث عن عمليات Python التي تشغل bot_clean.py
-        result = subprocess.run(['pgrep', '-f', 'bot_clean.py'], capture_output=True, text=True)
+        # البحث عن عمليات Python التي تشغل start_bot.py
+result = subprocess.run(['pgrep', '-f', 'start_bot.py'], capture_output=True, text=True)
         
         if result.stdout:
             pids = result.stdout.strip().split('\n')
@@ -40,7 +40,7 @@ def start_bot():
     try:
         # تشغيل البوت في الخلفية
         process = subprocess.Popen([
-            sys.executable, 'bot_clean.py'
+            sys.executable, 'start_bot.py'
         ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         
         print(f"✅ البوت يعمل الآن (PID: {process.pid})")

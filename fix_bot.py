@@ -94,7 +94,7 @@ def main():
     if reset_bot_webhook():
         print("\n✅ تم إصلاح البوت بنجاح!")
         print("🚀 يمكنك الآن تشغيل البوت:")
-        print("   python3 bot_clean.py")
+        print("   python3 start_bot.py")
     else:
         print("\n❌ فشل في إصلاح البوت")
         print("💡 يرجى المحاولة مرة أخرى")
